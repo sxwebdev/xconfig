@@ -25,14 +25,17 @@ type File struct {
 // Loader represents a set of file paths and the appropriate
 // unmarshal function for the given file.
 type Loader struct {
-	decoders map[string]Unmarshal
-	files    []File
+	decoders              map[string]Unmarshal
+	files                 []File
+	disallowUnknownFields bool
+	unknownFields         map[string][]string // filepath -> unknown fields
 }
 
 func NewLoader(decoders map[string]Unmarshal) (*Loader, error) {
 	l := &Loader{
-		decoders: make(map[string]Unmarshal),
-		files:    make([]File, 0),
+		decoders:      make(map[string]Unmarshal),
+		files:         make([]File, 0),
+		unknownFields: make(map[string][]string),
 	}
 
 	for format, decoder := range decoders {
@@ -96,15 +99,48 @@ func (f *Loader) RegisterDecoder(format string, decoder Unmarshal) error {
 	return nil
 }
 
+// DisallowUnknownFields enables strict validation of configuration files.
+// When enabled, loading will fail if any unknown fields are found.
+func (f *Loader) DisallowUnknownFields(disallow bool) {
+	f.disallowUnknownFields = disallow
+}
+
+// GetUnknownFields returns all unknown fields found in configuration files.
+// Returns a map where keys are file paths and values are slices of unknown field paths.
+func (f *Loader) GetUnknownFields() map[string][]string {
+	if f.unknownFields == nil {
+		return make(map[string][]string)
+	}
+
+	// Return a copy to prevent external modifications
+	result := make(map[string][]string, len(f.unknownFields))
+	for k, v := range f.unknownFields {
+		fields := make([]string, len(v))
+		copy(fields, v)
+		result[k] = fields
+	}
+
+	return result
+}
+
+// ClearUnknownFields clears the list of unknown fields.
+func (f *Loader) ClearUnknownFields() {
+	f.unknownFields = make(map[string][]string)
+}
+
 // Plugins constructs a slice of Plugin from the Files list of
 // paths and unmarshal functions.
-func (f Loader) Plugins() []plugins.Plugin {
+func (f *Loader) Plugins() []plugins.Plugin {
 	ps := make([]plugins.Plugin, 0, len(f.files))
-	for _, f := range f.files {
-		fp := New(
-			f.Path,
-			f.Unmarshal,
-			Config{Optional: f.Optional},
+	for _, file := range f.files {
+		fp := NewPlugin(
+			file.Path,
+			file.Unmarshal,
+			Config{
+				Optional:              file.Optional,
+				DisallowUnknownFields: f.disallowUnknownFields,
+			},
+			f,
 		)
 
 		ps = append(ps, fp)
@@ -127,13 +163,17 @@ func NewReader(src io.Reader, unmarshal Unmarshal) plugins.Plugin {
 type Config struct {
 	// indicates if a file that does not exist should be ignored.
 	Optional bool
+	// indicates if unknown fields should cause an error.
+	DisallowUnknownFields bool
 }
 
-// New returns an EnvSet.
-func New(path string, unmarshal Unmarshal, config Config) plugins.Plugin {
+// NewPlugin returns a new file loader plugin for the given path and unmarshal function.
+func NewPlugin(path string, unmarshal Unmarshal, config Config, loader *Loader) plugins.Plugin {
 	plug := &walker{
-		filepath:  path,
-		unmarshal: unmarshal,
+		filepath:              path,
+		unmarshal:             unmarshal,
+		disallowUnknownFields: config.DisallowUnknownFields,
+		loader:                loader,
 	}
 
 	src, err := os.Open(path)
@@ -152,10 +192,12 @@ func New(path string, unmarshal Unmarshal, config Config) plugins.Plugin {
 }
 
 type walker struct {
-	filepath  string
-	src       io.Reader
-	conf      any
-	unmarshal Unmarshal
+	filepath              string
+	src                   io.Reader
+	conf                  any
+	unmarshal             Unmarshal
+	disallowUnknownFields bool
+	loader                *Loader
 
 	err error
 }
@@ -187,6 +229,29 @@ func (v *walker) Parse() error {
 		err := closer.Close()
 		if err != nil {
 			return err
+		}
+	}
+
+	// Check for unknown fields if validation is enabled
+	if v.disallowUnknownFields || v.loader != nil {
+		unknownFields, err := findUnknownFields(src, v.conf, v.filepath, v.unmarshal)
+		if err != nil {
+			// If we can't validate, just continue with unmarshaling
+			// This allows non-JSON formats to work
+		} else if len(unknownFields) > 0 {
+			// Store unknown fields in loader
+			if v.loader != nil {
+				v.loader.unknownFields[v.filepath] = unknownFields
+			}
+
+			// Return error if disallowed
+			if v.disallowUnknownFields {
+				return &UnknownFieldsError{
+					Fields: map[string][]string{
+						v.filepath: unknownFields,
+					},
+				}
+			}
 		}
 	}
 

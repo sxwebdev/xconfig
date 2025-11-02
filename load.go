@@ -20,6 +20,11 @@ func Load(conf any, opts ...Option) (Config, error) {
 		opt(o)
 	}
 
+	// Apply disallow unknown fields to loader if set
+	if o.loader != nil && o.disallowUnknownFields {
+		o.loader.DisallowUnknownFields(true)
+	}
+
 	ps := make([]plugins.Plugin, 0)
 
 	if !o.skipDefaults {

@@ -93,6 +93,8 @@ import (
 
     "github.com/sxwebdev/xconfig"
     "github.com/sxwebdev/xconfig/plugins/loader"
+    "github.com/sxwebdev/xconfig/decoders/xconfigyaml"
+    "github.com/sxwebdev/xconfig/decoders/xconfigdotenv"
 )
 
 type Config struct {
@@ -106,8 +108,9 @@ cfg := &Config{}
 
 // Create loader with JSON decoder
 l, err := loader.NewLoader(map[string]loader.Unmarshal{
-    ".json": json.Unmarshal,
-    // Add more formats: ".yaml": yaml.Unmarshal, ".toml": toml.Unmarshal, etc.
+    "json": json.Unmarshal,
+    "yaml": xconfigyaml.New().Unmarshal,
+    "env":  xconfigdotenv.New().Unmarshal,
 })
 if err != nil {
     log.Fatal(err)
@@ -259,12 +262,15 @@ cfg := &Config{}
 
 // Skip certain plugins
 _, err := xconfig.Load(cfg,
-    xconfig.WithSkipDefaults(),      // Don't load from 'default' tags
-    xconfig.WithSkipEnv(),            // Don't load from environment
-    xconfig.WithSkipFlags(),          // Don't load from command-line flags
-    xconfig.WithSkipCustomDefaults(), // Don't call SetDefaults()
+    xconfig.WithSkipDefaults(),         // Don't load from 'default' tags
+    xconfig.WithSkipEnv(),              // Don't load from environment
+    xconfig.WithSkipFlags(),            // Don't load from command-line flags
+    xconfig.WithSkipCustomDefaults(),   // Don't call SetDefaults()
+    xconfig.WithDisallowUnknownFields(), // Fail if config files contain unknown fields
 )
 ```
+
+**Unknown Fields Validation**: Enable `WithDisallowUnknownFields()` to detect typos and configuration errors in JSON/YAML files. When enabled, loading will fail if any fields in the config files don't match your struct definition. Use `xconfig.GetUnknownFields()` to retrieve unknown fields without failing.
 
 ### Documentation Generation
 
