@@ -93,6 +93,8 @@ import (
 
     "github.com/sxwebdev/xconfig"
     "github.com/sxwebdev/xconfig/plugins/loader"
+    "github.com/sxwebdev/xconfig/decoders/xconfigyaml"
+    "github.com/sxwebdev/xconfig/decoders/xconfigdotenv"
 )
 
 type Config struct {
@@ -106,8 +108,9 @@ cfg := &Config{}
 
 // Create loader with JSON decoder
 l, err := loader.NewLoader(map[string]loader.Unmarshal{
-    ".json": json.Unmarshal,
-    // Add more formats: ".yaml": yaml.Unmarshal, ".toml": toml.Unmarshal, etc.
+    "json": json.Unmarshal,
+    "yaml": xconfigyaml.New().Unmarshal,
+    "env":  xconfigdotenv.New().Unmarshal,
 })
 if err != nil {
     log.Fatal(err)

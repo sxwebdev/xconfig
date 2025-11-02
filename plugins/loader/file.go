@@ -133,7 +133,7 @@ func (f *Loader) ClearUnknownFields() {
 func (f *Loader) Plugins() []plugins.Plugin {
 	ps := make([]plugins.Plugin, 0, len(f.files))
 	for _, file := range f.files {
-		fp := New(
+		fp := NewPlugin(
 			file.Path,
 			file.Unmarshal,
 			Config{
@@ -167,8 +167,8 @@ type Config struct {
 	DisallowUnknownFields bool
 }
 
-// New returns an EnvSet.
-func New(path string, unmarshal Unmarshal, config Config, loader *Loader) plugins.Plugin {
+// NewPlugin returns a new file loader plugin for the given path and unmarshal function.
+func NewPlugin(path string, unmarshal Unmarshal, config Config, loader *Loader) plugins.Plugin {
 	plug := &walker{
 		filepath:              path,
 		unmarshal:             unmarshal,
