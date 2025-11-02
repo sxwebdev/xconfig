@@ -259,12 +259,15 @@ cfg := &Config{}
 
 // Skip certain plugins
 _, err := xconfig.Load(cfg,
-    xconfig.WithSkipDefaults(),      // Don't load from 'default' tags
-    xconfig.WithSkipEnv(),            // Don't load from environment
-    xconfig.WithSkipFlags(),          // Don't load from command-line flags
-    xconfig.WithSkipCustomDefaults(), // Don't call SetDefaults()
+    xconfig.WithSkipDefaults(),         // Don't load from 'default' tags
+    xconfig.WithSkipEnv(),              // Don't load from environment
+    xconfig.WithSkipFlags(),            // Don't load from command-line flags
+    xconfig.WithSkipCustomDefaults(),   // Don't call SetDefaults()
+    xconfig.WithDisallowUnknownFields(), // Fail if config files contain unknown fields
 )
 ```
+
+**Unknown Fields Validation**: Enable `WithDisallowUnknownFields()` to detect typos and configuration errors in JSON/YAML files. When enabled, loading will fail if any fields in the config files don't match your struct definition. Use `xconfig.GetUnknownFields()` to retrieve unknown fields without failing.
 
 ### Documentation Generation
 

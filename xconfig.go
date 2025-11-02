@@ -112,3 +112,20 @@ func (c *config) Parse() error {
 
 	return nil
 }
+
+// GetUnknownFields returns all unknown fields found in configuration files.
+// Returns a map where keys are file paths and values are slices of unknown field paths.
+// This function is useful for debugging configuration issues or logging warnings about
+// extra fields that are not used.
+func GetUnknownFields(c Config) map[string][]string {
+	if c == nil {
+		return make(map[string][]string)
+	}
+
+	opts := c.Options()
+	if opts == nil || opts.loader == nil {
+		return make(map[string][]string)
+	}
+
+	return opts.loader.GetUnknownFields()
+}

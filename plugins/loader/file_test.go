@@ -122,7 +122,7 @@ func TestFileOpen(t *testing.T) {
 
 		value := f.Config{}
 
-		conf, err := xconfig.Custom(&value, loader.New(tc.Source, tc.Unmarshall, loader.Config{}))
+		conf, err := xconfig.Custom(&value, loader.New(tc.Source, tc.Unmarshall, loader.Config{}, nil))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -171,7 +171,7 @@ func TestMulti(t *testing.T) {
 	}`
 
 	reader := loader.NewReader(bytes.NewReader([]byte(srcJSON)), json.Unmarshal)
-	open := loader.New("testdata/config_rethink.json", json.Unmarshal, loader.Config{})
+	open := loader.New("testdata/config_rethink.json", json.Unmarshal, loader.Config{}, nil)
 
 	value := f.Config{}
 	conf, err := xconfig.Custom(&value, reader, open)

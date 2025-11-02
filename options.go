@@ -22,6 +22,9 @@ type options struct {
 	// EnvPrefix is the prefix for environment variables.
 	envPrefix string
 
+	// DisallowUnknownFields set to true will cause loading to fail if unknown fields are found in config files.
+	disallowUnknownFields bool
+
 	loader  *loader.Loader
 	plugins []plugins.Plugin
 }
@@ -71,5 +74,11 @@ func WithLoader(loader *loader.Loader) Option {
 func WithPlugins(plugins ...plugins.Plugin) Option {
 	return func(o *options) {
 		o.plugins = append(o.plugins, plugins...)
+	}
+}
+
+func WithDisallowUnknownFields() Option {
+	return func(o *options) {
+		o.disallowUnknownFields = true
 	}
 }
