@@ -54,12 +54,12 @@ func (v *visitor) Visit(f flat.Fields) error {
 func (v *visitor) buildEnvName(f flat.Field) string {
 	fieldName := f.Name()
 	parts := strings.Split(fieldName, ".")
-	
+
 	if len(parts) == 1 {
 		// Simple field without nesting
 		return makeEnvName(v.prefix, f.EnvName())
 	}
-	
+
 	// Check if parent struct has an env tag
 	parentTag := f.ParentTag()
 	if parentTag != "" {
@@ -71,7 +71,7 @@ func (v *visitor) buildEnvName(f flat.Field) string {
 			return makeEnvName(v.prefix, envName)
 		}
 	}
-	
+
 	// No parent tag found, use default behavior
 	return makeEnvName(v.prefix, f.EnvName())
 }
