@@ -10,6 +10,8 @@ import (
 	"github.com/sxwebdev/xconfig/plugins/env"
 )
 
+const testEnvPrefix = "XCONFIG_TEST"
+
 func TestEnvBasic(t *testing.T) {
 	envs := map[string]string{
 		"GO_HARD":               "T",
@@ -87,7 +89,7 @@ type fEnv struct {
 
 func TestEnvTag(t *testing.T) {
 	envs := map[string]string{
-		"MY_HOST_NAME": "https://blah.bleh",
+		"XCONFIG_TEST_MY_HOST_NAME": "https://blah.bleh",
 	}
 
 	for key, value := range envs {
@@ -100,7 +102,7 @@ func TestEnvTag(t *testing.T) {
 
 	value := fEnv{}
 
-	conf, err := xconfig.Custom(&value, env.New(""))
+	conf, err := xconfig.Custom(&value, env.New(testEnvPrefix))
 	if err != nil {
 		t.Fatal(err)
 	}

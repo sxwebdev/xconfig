@@ -42,6 +42,9 @@ func (v *visitor) Visit(f flat.Fields) error {
 		name, ok := f.Tag(tag)
 		if !ok || name == "" {
 			name = v.buildEnvName(f)
+		} else {
+			// If explicit tag is provided, still apply prefix
+			name = makeEnvName(v.prefix, name)
 		}
 
 		f.Meta()[tag] = name

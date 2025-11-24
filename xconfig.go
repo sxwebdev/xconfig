@@ -27,6 +27,9 @@ type Config interface {
 
 	// setOptions sets the options for the config.
 	setOptions(options *options)
+
+	// Fields returns the flat fields that have been processed by plugins.
+	Fields() flat.Fields
 }
 
 // Custom returns a new Config. The conf must be a pointer to a struct.
@@ -68,6 +71,11 @@ func (c *config) Options() *options {
 // setOptions sets the options for the config.
 func (c *config) setOptions(options *options) { //nolint:funcorder
 	c.options = options
+}
+
+// Fields returns the flat fields that have been processed by plugins.
+func (c *config) Fields() flat.Fields { //nolint:funcorder
+	return c.fields
 }
 
 func (c *config) addPlugin(plug plugins.Plugin) error { //nolint:funcorder

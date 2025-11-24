@@ -5,7 +5,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/sxwebdev/xconfig/flat"
 	"github.com/sxwebdev/xconfig/internal/utils"
 )
 
@@ -17,10 +16,8 @@ func GenerateMarkdown(cfg any, opts ...Option) (string, error) {
 		return "", err
 	}
 
-	fields, err := flat.View(cfg)
-	if err != nil {
-		return "", err
-	}
+	// Use fields from config that have been processed by plugins
+	fields := c.Fields()
 
 	var table [][]string //nolint:prealloc
 
@@ -44,6 +41,10 @@ func GenerateMarkdown(cfg any, opts ...Option) (string, error) {
 		envName := f.EnvName()
 		if c.Options().envPrefix != "" {
 			envName = c.Options().envPrefix + "_" + envName
+		}
+
+		if eName, ok := f.Meta()["env"]; ok && eName != "" {
+			envName = eName
 		}
 
 		var isRequired bool
