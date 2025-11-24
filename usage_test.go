@@ -9,22 +9,25 @@ import (
 	"github.com/sxwebdev/xconfig/flat"
 	"github.com/sxwebdev/xconfig/internal/f"
 	"github.com/sxwebdev/xconfig/plugins"
+	"github.com/sxwebdev/xconfig/plugins/env"
 	"github.com/sxwebdev/xconfig/plugins/secret"
 )
 
 const expectedUsageMessage = `
 Supported Fields:
-FIELD                   FLAG                     ENV                     DEFAULT    GOODPLUGIN              SECRET    USAGE
------                   -----                    -----                   -------    ----------              ------    -----
-Version                 -version                 VERSION                            Version                           
-GoHard                  -gohard                  GO_HARD                 false      GoHard                            
-Redis.Host              -redis-host              REDIS_HOST                         Redis.Host                        
-Redis.Port              -redis-port              REDIS_PORT              0          Redis.Port                        
-Rethink.Host.Address    -rethink-host-address    RETHINK_HOST_ADDRESS               Rethink.Host.Address              
-Rethink.Host.Port       -rethink-host-port       RETHINK_HOST_PORT                  Rethink.Host.Port                 
-Rethink.Db              -rethink-db              RETHINK_DB              primary    Rethink.Db                        main database used by our application
-Rethink.Password        -rethink-password        RETHINK_PASSWORD                   Rethink.Password        ✅         
-BaseURL.API             -baseurl-api             BASE_URL_API                       BaseURL.API                       
+FIELD                   FLAG                     ENV                      DEFAULT    GOODPLUGIN              SECRET    USAGE
+-----                   -----                    -----                    -------    ----------              ------    -----
+Version                 -version                 VERSION                             Version                           
+GoHard                  -gohard                  GO_HARD                  false      GoHard                            
+Redis.Host              -redis-host              REDIS_HOST                          Redis.Host                        
+Redis.Port              -redis-port              REDIS_PORT               0          Redis.Port                        
+Rethink.Host.Address    -rethink-host-address    RETHINK_HOST_ADDRESS                Rethink.Host.Address              
+Rethink.Host.Port       -rethink-host-port       RETHINK_HOST_PORT                   Rethink.Host.Port                 
+Rethink.Db              -rethink-db              RETHINK_DB               primary    Rethink.Db                        main database used by our application
+Rethink.Password        -rethink-password        RETHINK_PASSWORD                    Rethink.Password        ✅         
+BaseURL.API             -baseurl-api             BASE_URL_API                        BaseURL.API                       
+P2PGroups.IsEnabled     -p2pgroups-isenabled     P2P_GROUPS_IS_ENABLED    false      P2PGroups.IsEnabled               
+P2PGs.IsEnabled         -p2pgs-isenabled         P2_P_GS_IS_ENABLED       false      P2PGs.IsEnabled                   
 `
 
 type UselessPluginVisitor struct {
@@ -55,9 +58,16 @@ func TestUsage(t *testing.T) {
 
 	secretProvider := func(name string) (string, error) { return "top secret token", nil }
 
-	c, err := xconfig.Load(&value, xconfig.WithPlugins(secret.New(secretProvider), noopPlugin))
+	c, err := xconfig.Load(
+		&value,
+		xconfig.WithPlugins(
+			secret.New(secretProvider),
+			noopPlugin,
+			env.New(""),
+		),
+	)
 	if err != nil {
-		fmt.Println("Error loading config:", err)
+		t.Fatalf("Error loading config: %v", err)
 	}
 
 	output, err := c.Usage()

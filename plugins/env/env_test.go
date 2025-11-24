@@ -12,14 +12,16 @@ import (
 
 func TestEnvBasic(t *testing.T) {
 	envs := map[string]string{
-		"GO_HARD":              "T",
-		"VERSION":              "0.2",
-		"REDIS_HOST":           "redis-host",
-		"REDIS_PORT":           "6379",
-		"RETHINK_HOST_ADDRESS": "rethink-cluster",
-		"RETHINK_HOST_PORT":    "28015",
-		"RETHINK_DB":           "",
-		"BASE_URL_API":         "https://api.example.com",
+		"GO_HARD":               "T",
+		"VERSION":               "0.2",
+		"REDIS_HOST":            "redis-host",
+		"REDIS_PORT":            "6379",
+		"RETHINK_HOST_ADDRESS":  "rethink-cluster",
+		"RETHINK_HOST_PORT":     "28015",
+		"RETHINK_DB":            "",
+		"BASE_URL_API":          "https://api.example.com",
+		"P2P_GROUPS_IS_ENABLED": "true",
+		"P2_P_GS_IS_ENABLED":    "true",
 	}
 
 	expect := f.Config{
@@ -43,6 +45,12 @@ func TestEnvBasic(t *testing.T) {
 		},
 		BaseURL: f.BaseURLs{
 			API: "https://api.example.com",
+		},
+		P2PGroups: f.P2PGroups{
+			IsEnabled: true,
+		},
+		P2PGs: f.P2PGroups{
+			IsEnabled: true,
 		},
 	}
 

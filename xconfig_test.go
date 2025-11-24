@@ -70,7 +70,6 @@ func TestFailingPlugVisitor(t *testing.T) {
 	config := f.Config{}
 
 	_, err := xconfig.Custom(&config, failingPluginVisitor)
-
 	if err == nil {
 		t.Error("expected error for bad plugin, got nil")
 	}

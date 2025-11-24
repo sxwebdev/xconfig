@@ -26,6 +26,8 @@ func TestFlattenNested(t *testing.T) {
 		"Rethink.Db":           false,
 		"Rethink.Password":     false,
 		"BaseURL.API":          false,
+		"P2PGroups.IsEnabled":  false,
+		"P2PGs.IsEnabled":      false,
 	}
 
 	// for _, fs := range fs {
@@ -66,6 +68,8 @@ func TestEnvNames(t *testing.T) {
 		"Rethink.Db":           "RETHINK_DB",
 		"Rethink.Password":     "RETHINK_PASSWORD",
 		"BaseURL.API":          "BASE_URL_API",
+		"P2PGroups.IsEnabled":  "P2_P_GROUPS_IS_ENABLED",
+		"P2PGs.IsEnabled":      "P2_P_GS_IS_ENABLED",
 	}
 
 	for _, fs := range fs {

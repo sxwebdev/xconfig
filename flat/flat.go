@@ -18,6 +18,7 @@ type Field interface {
 	Name() string
 	EnvName() string
 	Tag(key string) (string, bool)
+	ParentTag() reflect.StructTag
 
 	Meta() map[string]string
 
@@ -42,6 +43,10 @@ func View(s any) (Fields, error) {
 }
 
 func walkStruct(prefix string, rs reflect.Value) ([]Field, error) {
+	return walkStructWithParentTags(prefix, rs, "")
+}
+
+func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflect.StructTag) ([]Field, error) {
 	prefix = strings.Title(prefix) //nolint:staticcheck
 
 	fields := []Field{}
@@ -67,7 +72,8 @@ func walkStruct(prefix string, rs reflect.Value) ([]Field, error) {
 					structPrefix = structPrefix + "." + ft.Name
 				}
 			}
-			fs, err := walkStruct(structPrefix, fv)
+			// Pass the struct's tags to children
+			fs, err := walkStructWithParentTags(structPrefix, fv, ft.Tag)
 			if err != nil {
 				return nil, err
 			}
@@ -88,6 +94,7 @@ func walkStruct(prefix string, rs reflect.Value) ([]Field, error) {
 				name:      fieldName,
 				meta:      make(map[string]string, 5),
 				tag:       ft.Tag,
+				parentTag: parentTags,
 				field:     fv,
 				fieldType: ft,
 			})

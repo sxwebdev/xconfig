@@ -35,13 +35,19 @@ type BaseURLs struct {
 	API string
 }
 
+type P2PGroups struct {
+	IsEnabled bool
+}
+
 // Config is part of text fixtures.
 type Config struct {
 	Anon
-	GoHard  bool
-	Redis   Redis
-	Rethink RethinkConfig
-	BaseURL BaseURLs
+	GoHard    bool
+	Redis     Redis
+	Rethink   RethinkConfig
+	BaseURL   BaseURLs
+	P2PGroups P2PGroups `env:"P2P_GROUPS"`
+	P2PGs     P2PGroups
 }
 
 // TextUnmarshalerStringSlice is an example of encoding.TextUnmarshaler.
