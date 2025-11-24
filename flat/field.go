@@ -15,8 +15,9 @@ import (
 var _ Field = (*field)(nil)
 
 type field struct {
-	name string
-	meta map[string]string
+	name      string
+	meta      map[string]string
+	parentTag reflect.StructTag
 
 	tag       reflect.StructTag
 	field     reflect.Value
@@ -54,6 +55,10 @@ func (f *field) Meta() map[string]string {
 
 func (f *field) Tag(key string) (string, bool) {
 	return f.tag.Lookup(key)
+}
+
+func (f *field) ParentTag() reflect.StructTag {
+	return f.parentTag
 }
 
 func (f *field) String() string {

@@ -30,10 +30,7 @@ func (c *config) Usage() (string, error) {
 
 	dashes := make([]string, len(headers))
 	for i, f := range headers {
-		n := len(f)
-		if n < 5 {
-			n = 5
-		}
+		n := max(len(f), 5)
 		dashes[i] = strings.Repeat("-", n)
 	}
 	fmt.Fprintln(w, strings.Join(dashes, "\t"))
