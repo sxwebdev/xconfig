@@ -27,8 +27,9 @@ func Load(conf any, opts ...Option) (Config, error) {
 
 	ps := make([]plugins.Plugin, 0)
 
+	// Register default metadata early for usage/documentation
 	if !o.skipDefaults {
-		ps = append(ps, defaults.New())
+		ps = append(ps, defaults.NewMetaOnly())
 	}
 
 	if !o.skipCustomDefaults {
@@ -39,9 +40,10 @@ func Load(conf any, opts ...Option) (Config, error) {
 		ps = append(ps, o.loader.Plugins()...)
 	}
 
-	// Apply defaults again after loading files to fill in zero values in loaded structs
+	// Apply defaults after loading files to fill in zero values including those in loaded maps
+	// Use NewWithRescan to rescan the structure and find fields in maps that were created during loading
 	if !o.skipDefaults {
-		ps = append(ps, defaults.New())
+		ps = append(ps, defaults.NewWithRescan())
 	}
 
 	if !o.skipEnv {
