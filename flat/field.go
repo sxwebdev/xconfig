@@ -22,6 +22,9 @@ type field struct {
 	tag       reflect.StructTag
 	field     reflect.Value
 	fieldType reflect.StructField
+
+	// mapSync is called after field modification to sync back to map
+	mapSync func()
 }
 
 // Used by standard library flag package.
@@ -75,25 +78,31 @@ func (f *field) Set(value string) error {
 	t := f.field.Type()
 
 	if t.Implements(textUnmarshalerType) {
-		return f.setUnmarshale([]byte(value))
+		err := f.setUnmarshale([]byte(value))
+		if err == nil && f.mapSync != nil {
+			f.mapSync()
+		}
+		return err
 	}
 
+	var err error
 	switch f.field.Kind() {
 	case reflect.String:
-		return f.setString(value)
+		err = f.setString(value)
 	case reflect.Bool:
-		return f.setBool(value)
+		err = f.setBool(value)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		if t.String() == "time.Duration" {
-			return f.setDuration(value)
+			err = f.setDuration(value)
+		} else {
+			err = f.setInt(value)
 		}
-		return f.setInt(value)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return f.setUint(value)
+		err = f.setUint(value)
 	case reflect.Float32, reflect.Float64:
-		return f.setFloat(value)
+		err = f.setFloat(value)
 	case reflect.Slice:
-		return f.setSlice(value)
+		err = f.setSlice(value)
 
 		// Soon case reflect.Map:
 
@@ -109,7 +118,12 @@ func (f *field) Set(value string) error {
 		// Never case reflect.Struct:
 		// Never case reflect.UnsafePointer:
 	}
-	return nil
+
+	if err == nil && f.mapSync != nil {
+		f.mapSync()
+	}
+
+	return err
 }
 
 // FieldValue is a field in a struct.
