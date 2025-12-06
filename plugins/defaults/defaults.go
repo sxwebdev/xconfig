@@ -41,6 +41,12 @@ func (v *visitor) Parse() error {
 		if !ok {
 			continue
 		}
+		
+		// Only set default if field is zero (empty)
+		if !f.IsZero() {
+			continue
+		}
+		
 		err := f.Set(value)
 		if err != nil {
 			return err

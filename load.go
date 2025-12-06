@@ -39,6 +39,11 @@ func Load(conf any, opts ...Option) (Config, error) {
 		ps = append(ps, o.loader.Plugins()...)
 	}
 
+	// Apply defaults again after loading files to fill in zero values in loaded structs
+	if !o.skipDefaults {
+		ps = append(ps, defaults.New())
+	}
+
 	if !o.skipEnv {
 		ps = append(ps, env.New(o.envPrefix))
 	}
