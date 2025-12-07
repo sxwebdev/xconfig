@@ -6,10 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/google/go-cmp/cmp"
 	"github.com/sxwebdev/xconfig"
 	"github.com/sxwebdev/xconfig/plugins/loader"
+	"github.com/sxwebdev/xconfig/plugins/validate"
 )
+
+const envPrefix = "XCONFIG_TEST"
 
 type BlockchainType string
 
@@ -77,8 +81,14 @@ func TestMapDefaultsWithJSON(t *testing.T) {
 
 	_, err = xconfig.Load(cfg,
 		xconfig.WithDisallowUnknownFields(),
+		xconfig.WithEnvPrefix(envPrefix),
 		xconfig.WithLoader(l),
 		xconfig.WithSkipFlags(),
+		xconfig.WithPlugins(
+			validate.New(func(a any) error {
+				return validator.New().Struct(a)
+			}),
+		),
 	)
 	if err != nil {
 		t.Fatal(err)
