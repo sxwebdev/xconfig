@@ -78,6 +78,60 @@ func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflec
 				return nil, err
 			}
 			fields = append(fields, fs...)
+		case reflect.Map:
+			// Handle maps with struct values
+			if fv.IsNil() {
+				continue
+			}
+
+			mapElemType := fv.Type().Elem()
+			if mapElemType.Kind() == reflect.Struct {
+				mapPrefix := prefix
+				if mapPrefix == "" {
+					mapPrefix = ft.Name
+				} else {
+					mapPrefix = mapPrefix + "." + ft.Name
+				}
+
+				// Collect all keys first to avoid issues with modifying map during iteration
+				keys := make([]reflect.Value, 0)
+				iter := fv.MapRange()
+				for iter.Next() {
+					keys = append(keys, iter.Key())
+				}
+
+				// Process each key
+				for _, key := range keys {
+					val := fv.MapIndex(key)
+
+					// Create a prefix with the map key
+					keyPrefix := mapPrefix + "." + key.String()
+
+					// Create an addressable copy of the map value
+					addressableVal := reflect.New(mapElemType).Elem()
+					addressableVal.Set(val)
+
+					// Walk the struct value - this will create fields pointing to addressableVal
+					fs, err := walkStructWithParentTags(keyPrefix, addressableVal, ft.Tag)
+					if err != nil {
+						return nil, err
+					}
+
+					// Set mapSync callback for all fields to sync back to the map
+					mapValue := fv            // capture map
+					mapKey := key             // capture key
+					syncVal := addressableVal // capture addressable value
+					for _, fld := range fs {
+						if f, ok := fld.(*field); ok {
+							f.mapSync = func() {
+								mapValue.SetMapIndex(mapKey, syncVal)
+							}
+						}
+					}
+
+					fields = append(fields, fs...)
+				}
+			}
 		default:
 			fieldName := ft.Name
 
