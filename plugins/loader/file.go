@@ -234,7 +234,7 @@ func (v *walker) Parse() error {
 
 	// Check for unknown fields if validation is enabled
 	if v.disallowUnknownFields || v.loader != nil {
-		unknownFields, err := findUnknownFields(src, v.conf, v.filepath, v.unmarshal)
+		unknownFields, err := findUnknownFields(src, v.conf, v.unmarshal)
 		if err != nil {
 			// If we can't validate, just continue with unmarshaling
 			// This allows non-JSON formats to work

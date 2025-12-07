@@ -38,7 +38,7 @@ type UnknownField struct {
 
 // findUnknownFields compares the raw data with the struct and returns unknown fields.
 // It uses the provided unmarshal function to parse the data into a generic map.
-func findUnknownFields(data []byte, v any, filepath string, unmarshal Unmarshal) ([]string, error) {
+func findUnknownFields(data []byte, v any, unmarshal Unmarshal) ([]string, error) {
 	var raw map[string]any
 
 	// Try to unmarshal into a generic map using the provided unmarshal function
@@ -174,6 +174,21 @@ func collectStructFields(t reflect.Type, fields map[string]bool) {
 			// Maps are dynamic, so we mark the field as valid
 			// and allow any subfields
 			fields[fieldName+".*"] = true
+
+			// If map value is a struct, collect its fields too
+			mapValueType := fieldType.Elem()
+			if mapValueType.Kind() == reflect.Ptr {
+				mapValueType = mapValueType.Elem()
+			}
+			if mapValueType.Kind() == reflect.Struct {
+				nestedFields := make(map[string]bool)
+				collectStructFields(mapValueType, nestedFields)
+
+				// Add nested field paths for map values with wildcard key
+				for nestedField := range nestedFields {
+					fields[fieldName+".*."+nestedField] = true
+				}
+			}
 		}
 	}
 }
@@ -201,6 +216,23 @@ func compareFields(prefix string, data any, validFields map[string]bool) []strin
 			// Check if parent allows dynamic fields (map)
 			if !isValid && prefix != "" {
 				isValid = validFields[prefix+".*"]
+
+				// Also check if this is a wildcard pattern for map values
+				// For example: indexers.*.chain should match indexers.ethereum.chain
+				if !isValid {
+					parts := strings.Split(prefix, ".")
+					for i := range parts {
+						// Try replacing each part with wildcard
+						testParts := make([]string, len(parts))
+						copy(testParts, parts)
+						testParts[i] = "*"
+						wildcardPrefix := strings.Join(testParts, ".")
+						if validFields[wildcardPrefix+"."+key] {
+							isValid = true
+							break
+						}
+					}
+				}
 			}
 
 			// Check if this is a valid top-level field (case-insensitive)

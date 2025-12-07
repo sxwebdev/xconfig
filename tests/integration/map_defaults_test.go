@@ -76,6 +76,7 @@ func TestMapDefaultsWithJSON(t *testing.T) {
 	cfg := &TestConfig{}
 
 	_, err = xconfig.Load(cfg,
+		xconfig.WithDisallowUnknownFields(),
 		xconfig.WithLoader(l),
 		xconfig.WithSkipFlags(),
 	)
