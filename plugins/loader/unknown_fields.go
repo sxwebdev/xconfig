@@ -250,7 +250,7 @@ func compareFields(prefix string, data any, validFields map[string]bool) []strin
 				if nested, ok := value.(map[string]any); ok {
 					// Find the actual field path for nested objects
 					actualFieldPath := findActualFieldPath(fieldPath, validFields)
-					
+
 					// If we validated using a wildcard pattern, use the wildcard for recursion
 					if actualFieldPath == fieldPath && prefix != "" && validFields[prefix+".*"] {
 						// Replace the last component with wildcard
@@ -260,7 +260,7 @@ func compareFields(prefix string, data any, validFields map[string]bool) []strin
 							actualFieldPath = strings.Join(parts, ".")
 						}
 					}
-					
+
 					nestedUnknown := compareFields(actualFieldPath, nested, validFields)
 					unknown = append(unknown, nestedUnknown...)
 				}
