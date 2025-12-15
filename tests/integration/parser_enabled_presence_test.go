@@ -15,7 +15,7 @@ type presenceChain struct {
 }
 
 type presenceParser struct {
-	Enabled bool `json:"enabled" yaml:"enabled" default:"true"`
+	Enabled bool `json:"enabled" yaml:"enableD" default:"true"`
 }
 
 type presenceIndexer struct {
@@ -26,17 +26,17 @@ type presenceIndexer struct {
 }
 
 type presenceRoot struct {
-	Indexers map[string]presenceIndexer `json:"indexers" yaml:"indexers"`
+	Indexers map[string]presenceIndexer `json:"indexers" yaml:"indexerS"`
 }
 
 func TestExplicitFalseNotOverriddenWhenParentFieldUntagged_Yaml(t *testing.T) {
-	yamlContent := `indexers:
+	yamlContent := `indexerS:
   arbitrum:
     chain:
       blockchain: arbitrum
       chain_id: 42161
     parser:
-      enabled: false
+      enableD: false
 `
 
 	l, err := loader.NewLoader(map[string]loader.Unmarshal{
