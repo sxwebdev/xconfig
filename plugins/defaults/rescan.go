@@ -177,5 +177,6 @@ func fileFieldName(field reflect.StructField) (string, bool) {
 		return name, true
 	}
 
-	return field.Name, true
+	// No tags: config keys are typically lower-cased (e.g. "parser" for Go field "Parser").
+	return strings.ToLower(field.Name), true
 }
