@@ -43,6 +43,11 @@ type ParserConfig struct {
 }
 
 type FeatureConfig struct {
+	Enabled bool                  `json:"enabled" yaml:"enabled" default:"true"`
+	Rules   map[string]RuleConfig `json:"rules" yaml:"rules"`
+}
+
+type RuleConfig struct {
 	Enabled bool `json:"enabled" yaml:"enabled" default:"true"`
 }
 
@@ -77,8 +82,8 @@ func TestMapDefaultsWithJSON(t *testing.T) {
         "enabled": false,
         "first_block": 1,
 			"features": {
-				"foo": {"enabled": false},
-				"bar": {}
+				"foo": {"enabled": false, "rules": {"r1": {"enabled": false}, "r2": {}}},
+				"bar": {"rules": {"r3": {}}}
 			},
 				"timeout": 0
       }
@@ -181,8 +186,19 @@ func TestMapDefaultsWithJSON(t *testing.T) {
 					Workers:       1,
 					Timeout:       0,
 					Features: map[string]FeatureConfig{
-						"foo": {Enabled: false},
-						"bar": {Enabled: true},
+						"foo": {
+							Enabled: false,
+							Rules: map[string]RuleConfig{
+								"r1": {},
+								"r2": {Enabled: true},
+							},
+						},
+						"bar": {
+							Enabled: true,
+							Rules: map[string]RuleConfig{
+								"r3": {Enabled: true},
+							},
+						},
 					},
 				},
 			},
@@ -260,7 +276,13 @@ indexers:
       features:
         foo:
           enabled: false
-        bar: {}
+          rules:
+            r1:
+              enabled: false
+            r2: {}
+        bar:
+          rules:
+            r3: {}
   polygon:
     chain:
       blockchain: polygon
@@ -277,6 +299,7 @@ indexers:
     chain:
       blockchain: solana
       chain_id: 101
+    parser: {}
   avalanche:
     chain:
       blockchain: avalanche
@@ -349,8 +372,19 @@ indexers:
 					Workers:       1,
 					Timeout:       0,
 					Features: map[string]FeatureConfig{
-						"foo": {Enabled: false},
-						"bar": {Enabled: true},
+						"foo": {
+							Enabled: false,
+							Rules: map[string]RuleConfig{
+								"r1": {},
+								"r2": {Enabled: true},
+							},
+						},
+						"bar": {
+							Enabled: true,
+							Rules: map[string]RuleConfig{
+								"r3": {Enabled: true},
+							},
+						},
 					},
 				},
 			},
