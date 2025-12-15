@@ -18,7 +18,11 @@ const envPrefix = "XCONFIG_TEST"
 type BlockchainType string
 
 const (
-	Ethereum BlockchainType = "ethereum"
+	Ethereum  BlockchainType = "ethereum"
+	Bsc       BlockchainType = "bsc"
+	Polygon   BlockchainType = "polygon"
+	Solana    BlockchainType = "solana"
+	Avalanche BlockchainType = "avalanche"
 )
 
 type ChainConfig struct {
@@ -57,6 +61,48 @@ func TestMapDefaultsWithJSON(t *testing.T) {
         "enabled": true,
         "first_block": 100
       }
+    },
+		"bsc": {
+      "chain": {
+        "blockchain": "bsc",
+        "chain_id": 56
+      },
+      "parser": {
+        "enabled": false,
+        "first_block": 1,
+				"timeout": 0
+      }
+		},
+		"polygon": {
+			"chain": {
+				"blockchain": "polygon",
+				"chain_id": 137,
+				"min_confirmations": 0,
+				"block_sync_offset": 0
+			},
+			"parser": {
+				"enabled": false,
+				"first_block": 0,
+				"blocks_in_chunk": 0,
+				"workers": 0,
+				"timeout": 0
+			}
+		},
+		"solana": {
+			"chain": {
+				"blockchain": "solana",
+				"chain_id": 101
+			},
+			"parser": {}
+		},
+		"avalanche": {
+			"chain": {
+				"blockchain": "avalanche",
+				"chain_id": 43114
+			},
+			"parser": {
+				"enabled": false
+			}
     }
   }
 }`
@@ -106,6 +152,66 @@ func TestMapDefaultsWithJSON(t *testing.T) {
 				Parser: ParserConfig{
 					Enabled:       true,
 					FirstBlock:    100,
+					BlocksInChunk: 5,
+					Workers:       1,
+					Timeout:       30 * time.Second,
+				},
+			},
+			Bsc: {
+				Chain: ChainConfig{
+					Blockchain:       Bsc,
+					ChainID:          56,
+					MinConfirmations: 12,
+					BlockSyncOffset:  100,
+				},
+				Parser: ParserConfig{
+					Enabled:       false,
+					FirstBlock:    1,
+					BlocksInChunk: 5,
+					Workers:       1,
+					Timeout:       0,
+				},
+			},
+			Polygon: {
+				Chain: ChainConfig{
+					Blockchain:       Polygon,
+					ChainID:          137,
+					MinConfirmations: 0,
+					BlockSyncOffset:  0,
+				},
+				Parser: ParserConfig{
+					Enabled:       false,
+					FirstBlock:    0,
+					BlocksInChunk: 0,
+					Workers:       0,
+					Timeout:       0,
+				},
+			},
+			Solana: {
+				Chain: ChainConfig{
+					Blockchain:       Solana,
+					ChainID:          101,
+					MinConfirmations: 12,
+					BlockSyncOffset:  100,
+				},
+				Parser: ParserConfig{
+					Enabled:       true,
+					FirstBlock:    -1,
+					BlocksInChunk: 5,
+					Workers:       1,
+					Timeout:       30 * time.Second,
+				},
+			},
+			Avalanche: {
+				Chain: ChainConfig{
+					Blockchain:       Avalanche,
+					ChainID:          43114,
+					MinConfirmations: 12,
+					BlockSyncOffset:  100,
+				},
+				Parser: ParserConfig{
+					Enabled:       false,
+					FirstBlock:    -1,
 					BlocksInChunk: 5,
 					Workers:       1,
 					Timeout:       30 * time.Second,

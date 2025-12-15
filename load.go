@@ -43,7 +43,7 @@ func Load(conf any, opts ...Option) (Config, error) {
 	// Apply defaults after loading files to fill in zero values including those in loaded maps
 	// Use NewWithRescan to rescan the structure and find fields in maps that were created during loading
 	if !o.skipDefaults {
-		ps = append(ps, defaults.NewWithRescan())
+		ps = append(ps, defaults.NewWithRescan(o.loader))
 	}
 
 	if !o.skipEnv {

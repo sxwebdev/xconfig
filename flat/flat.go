@@ -4,7 +4,6 @@ package flat
 import (
 	"errors"
 	"reflect"
-	"strings"
 )
 
 // ErrUnexpectedType is returned when flatten sees an unsupported type.
@@ -47,8 +46,6 @@ func walkStruct(prefix string, rs reflect.Value) ([]Field, error) {
 }
 
 func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflect.StructTag) ([]Field, error) {
-	prefix = strings.Title(prefix) //nolint:staticcheck
-
 	fields := []Field{}
 
 	ts := rs.Type()

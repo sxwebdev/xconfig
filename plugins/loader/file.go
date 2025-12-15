@@ -28,7 +28,8 @@ type Loader struct {
 	decoders              map[string]Unmarshal
 	files                 []File
 	disallowUnknownFields bool
-	unknownFields         map[string][]string // filepath -> unknown fields
+	unknownFields         map[string][]string            // filepath -> unknown fields
+	presentFields         map[string]map[string]struct{} // filepath -> present leaf field paths
 }
 
 func NewLoader(decoders map[string]Unmarshal) (*Loader, error) {
@@ -36,6 +37,7 @@ func NewLoader(decoders map[string]Unmarshal) (*Loader, error) {
 		decoders:      make(map[string]Unmarshal),
 		files:         make([]File, 0),
 		unknownFields: make(map[string][]string),
+		presentFields: make(map[string]map[string]struct{}),
 	}
 
 	for format, decoder := range decoders {
@@ -126,6 +128,21 @@ func (f *Loader) GetUnknownFields() map[string][]string {
 // ClearUnknownFields clears the list of unknown fields.
 func (f *Loader) ClearUnknownFields() {
 	f.unknownFields = make(map[string][]string)
+}
+
+// PresentFields returns a union set of all leaf field paths that were explicitly present
+// in loaded configuration files.
+func (f *Loader) PresentFields() map[string]struct{} {
+	result := make(map[string]struct{})
+	if f == nil || f.presentFields == nil {
+		return result
+	}
+	for _, perFile := range f.presentFields {
+		for p := range perFile {
+			result[p] = struct{}{}
+		}
+	}
+	return result
 }
 
 // Plugins constructs a slice of Plugin from the Files list of
@@ -229,6 +246,17 @@ func (v *walker) Parse() error {
 		err := closer.Close()
 		if err != nil {
 			return err
+		}
+	}
+
+	// Track which leaf fields were explicitly present in the config file.
+	if v.loader != nil {
+		present, err := findPresentFields(src, v.unmarshal)
+		if err == nil {
+			if v.loader.presentFields == nil {
+				v.loader.presentFields = make(map[string]map[string]struct{})
+			}
+			v.loader.presentFields[v.filepath] = present
 		}
 	}
 
