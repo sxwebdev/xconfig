@@ -34,11 +34,16 @@ type ChainConfig struct {
 }
 
 type ParserConfig struct {
-	Enabled       bool          `json:"enabled" yaml:"enabled" default:"true"`
-	FirstBlock    int64         `json:"first_block" yaml:"first_block" default:"-1"`
-	BlocksInChunk int           `json:"blocks_in_chunk" yaml:"blocks_in_chunk" default:"5"`
-	Workers       int           `json:"workers" yaml:"workers" default:"1"`
-	Timeout       time.Duration `json:"timeout" yaml:"timeout" default:"30s"`
+	Enabled       bool                     `json:"enabled" yaml:"enabled" default:"true"`
+	FirstBlock    int64                    `json:"first_block" yaml:"first_block" default:"-1"`
+	BlocksInChunk int                      `json:"blocks_in_chunk" yaml:"blocks_in_chunk" default:"5"`
+	Workers       int                      `json:"workers" yaml:"workers" default:"1"`
+	Timeout       time.Duration            `json:"timeout" yaml:"timeout" default:"30s"`
+	Features      map[string]FeatureConfig `json:"features" yaml:"features"`
+}
+
+type FeatureConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled" default:"true"`
 }
 
 type IndexerConfig struct {
@@ -71,6 +76,10 @@ func TestMapDefaultsWithJSON(t *testing.T) {
       "parser": {
         "enabled": false,
         "first_block": 1,
+			"features": {
+				"foo": {"enabled": false},
+				"bar": {}
+			},
 				"timeout": 0
       }
 		},
@@ -171,6 +180,10 @@ func TestMapDefaultsWithJSON(t *testing.T) {
 					BlocksInChunk: 5,
 					Workers:       1,
 					Timeout:       0,
+					Features: map[string]FeatureConfig{
+						"foo": {Enabled: false},
+						"bar": {Enabled: true},
+					},
 				},
 			},
 			Polygon: {
@@ -244,6 +257,10 @@ indexers:
       enabled: false
       first_block: 1
       timeout: 0s
+      features:
+        foo:
+          enabled: false
+        bar: {}
   polygon:
     chain:
       blockchain: polygon
@@ -331,6 +348,10 @@ indexers:
 					BlocksInChunk: 5,
 					Workers:       1,
 					Timeout:       0,
+					Features: map[string]FeatureConfig{
+						"foo": {Enabled: false},
+						"bar": {Enabled: true},
+					},
 				},
 			},
 			Polygon: {

@@ -120,7 +120,11 @@ func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflec
 					syncVal := addressableVal // capture addressable value
 					for _, fld := range fs {
 						if f, ok := fld.(*field); ok {
+							prev := f.mapSync
 							f.mapSync = func() {
+								if prev != nil {
+									prev()
+								}
 								mapValue.SetMapIndex(mapKey, syncVal)
 							}
 						}
