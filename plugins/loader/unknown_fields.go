@@ -61,6 +61,53 @@ func findUnknownFields(data []byte, v any, unmarshal Unmarshal) ([]string, error
 	return unknown, nil
 }
 
+// findPresentFields extracts a set of leaf field paths that were explicitly present in the
+// configuration file.
+//
+// Example: for {"indexers": {"bsc": {"parser": {"enabled": false}}}}
+// it will include: "indexers.bsc.parser.enabled".
+func findPresentFields(data []byte, unmarshal Unmarshal) (map[string]struct{}, error) {
+	var raw map[string]any
+
+	err := unmarshal(data, &raw)
+	if err != nil {
+		// Also try JSON as fallback
+		err = json.Unmarshal(data, &raw)
+		if err != nil {
+			// If we can't parse, we can't track presence.
+			return nil, err
+		}
+	}
+
+	present := make(map[string]struct{})
+	collectLeafPaths("", raw, present)
+	return present, nil
+}
+
+func collectLeafPaths(prefix string, data any, out map[string]struct{}) {
+	switch v := data.(type) {
+	case map[string]any:
+		for k, vv := range v {
+			p := k
+			if prefix != "" {
+				p = prefix + "." + k
+			}
+			collectLeafPaths(p, vv, out)
+		}
+	case []any:
+		// Arrays are represented as repeated elements; we don't include indexes.
+		// If arrays contain nested objects, we still want to collect their leaf keys.
+		for _, item := range v {
+			collectLeafPaths(prefix, item, out)
+		}
+	default:
+		// Leaf scalar (including nil) counts as "present".
+		if prefix != "" {
+			out[prefix] = struct{}{}
+		}
+	}
+}
+
 // getValidFields extracts all valid field names from a struct type.
 func getValidFields(t reflect.Type) map[string]bool {
 	if t == nil {
