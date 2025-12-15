@@ -94,7 +94,7 @@ func fieldConfigPath(conf any, flatName string) (string, bool) {
 
 		switch cur.Kind() {
 		case reflect.Struct:
-			sf, ok := cur.FieldByName(seg)
+			sf, ok := findFieldByFlatSegment(cur, seg)
 			if !ok {
 				return "", false
 			}
@@ -116,6 +116,42 @@ func fieldConfigPath(conf any, flatName string) (string, bool) {
 	return strings.Join(pathParts, "."), true
 }
 
+func findFieldByFlatSegment(structType reflect.Type, seg string) (reflect.StructField, bool) {
+	// Fast path: exact Go field name.
+	if sf, ok := structType.FieldByName(seg); ok {
+		return sf, true
+	}
+
+	// Otherwise, try to match by tags. This matters when flat names were overridden
+	// with `xconfig:"..."` (often snake_case), because FieldByName() won't find it.
+	for i := 0; i < structType.NumField(); i++ {
+		sf := structType.Field(i)
+		if !sf.IsExported() {
+			continue
+		}
+
+		if xname, ok := sf.Tag.Lookup("xconfig"); ok && xname == seg {
+			return sf, true
+		}
+
+		if yamlTag := sf.Tag.Get("yaml"); yamlTag != "" {
+			parts := strings.Split(yamlTag, ",")
+			if parts[0] == seg {
+				return sf, true
+			}
+		}
+
+		if jsonTag := sf.Tag.Get("json"); jsonTag != "" {
+			parts := strings.Split(jsonTag, ",")
+			if parts[0] == seg {
+				return sf, true
+			}
+		}
+	}
+
+	return reflect.StructField{}, false
+}
+
 func fileFieldName(field reflect.StructField) (string, bool) {
 	if yamlTag := field.Tag.Get("yaml"); yamlTag != "" {
 		parts := strings.Split(yamlTag, ",")
@@ -135,6 +171,10 @@ func fileFieldName(field reflect.StructField) (string, bool) {
 		if parts[0] != "" {
 			return parts[0], true
 		}
+	}
+
+	if name, ok := field.Tag.Lookup("xconfig"); ok && name != "" {
+		return name, true
 	}
 
 	return field.Name, true
