@@ -1,7 +1,9 @@
 # xConfig
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/sxwebdev/xconfig.svg)](https://pkg.go.dev/github.com/sxwebdev/xconfig)
+[![Go Version](https://img.shields.io/badge/go-1.25-blue)](https://go.dev/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/sxwebdev/xconfig)](https://goreportcard.com/report/github.com/sxwebdev/xconfig)
+[![License](https://img.shields.io/github/license/sxwebdev/xconfig)](LICENSE)
 
 A lightweight, zero-dependency, and highly extensible configuration management library for Go applications.
 
