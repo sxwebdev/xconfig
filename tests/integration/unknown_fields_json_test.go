@@ -13,8 +13,9 @@ import (
 
 func TestUnknownFieldsJSON_SimpleStruct(t *testing.T) {
 	type Config struct {
-		Host string `json:"host"`
-		Port int    `json:"port"`
+		Host     string         `json:"host"`
+		Port     int            `json:"port"`
+		Settings map[string]any `json:"settings"`
 	}
 
 	tmpDir := t.TempDir()
@@ -23,6 +24,13 @@ func TestUnknownFieldsJSON_SimpleStruct(t *testing.T) {
 	content := `{
 		"host": "localhost",
 		"port": 8080,
+		"settings": {
+			"key1": "value1",
+			"headers": {
+				"Authorization": "Bearer token",
+				"Content-Type": "application/json"
+			}
+		},
 		"unknown_field": "value"
 	}`
 

@@ -32,6 +32,7 @@ func TestYAMLUnknownFields(t *testing.T) {
 		Server   ServerConfig   `yaml:"server"`
 		Database DatabaseConfig `yaml:"database"`
 		DataDir  string         `yaml:"data_dir"`
+		Settings map[string]any `yaml:"settings"`
 	}
 
 	tmpDir := t.TempDir()
@@ -53,6 +54,12 @@ database:
 
 data_dir: /data
 unknown_root_field: value
+settings:
+  key1: value1
+  key2: value2
+  headers:
+    Authorization: Bearer token
+    Content-Type: application/json
 `
 
 	if err := os.WriteFile(testFile, []byte(content), 0o644); err != nil {

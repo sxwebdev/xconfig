@@ -227,7 +227,12 @@ func collectStructFields(t reflect.Type, fields map[string]bool) {
 			if mapValueType.Kind() == reflect.Ptr {
 				mapValueType = mapValueType.Elem()
 			}
-			if mapValueType.Kind() == reflect.Struct {
+
+			// For map[string]any or map[string]interface{}, skip all nested validation
+			// because any can contain arbitrary nested structures
+			if mapValueType.Kind() == reflect.Interface {
+				fields[fieldName+".**"] = true
+			} else if mapValueType.Kind() == reflect.Struct {
 				nestedFields := make(map[string]bool)
 				collectStructFields(mapValueType, nestedFields)
 
@@ -293,34 +298,53 @@ func compareFields(prefix string, data any, validFields map[string]bool) []strin
 			if !isValid {
 				unknown = append(unknown, fieldPath)
 			} else {
-				// Recursively check nested objects
-				if nested, ok := value.(map[string]any); ok {
-					// Find the actual field path for nested objects
-					actualFieldPath := findActualFieldPath(fieldPath, validFields)
-
-					// If we validated using a wildcard pattern, use the wildcard for recursion
-					if actualFieldPath == fieldPath && prefix != "" && validFields[prefix+".*"] {
-						// Replace the last component with wildcard
-						parts := strings.Split(fieldPath, ".")
-						if len(parts) > 0 {
-							parts[len(parts)-1] = "*"
-							actualFieldPath = strings.Join(parts, ".")
+				// Check if this field or any parent allows arbitrary nesting (map[string]any)
+				// If so, skip all nested validation
+				skipNestedValidation := false
+				if prefix != "" && validFields[prefix+".**"] {
+					skipNestedValidation = true
+				} else {
+					// Check all parent prefixes for ** marker
+					parts := strings.Split(fieldPath, ".")
+					for i := 1; i < len(parts); i++ {
+						parentPath := strings.Join(parts[:i], ".")
+						if validFields[parentPath+".**"] {
+							skipNestedValidation = true
+							break
 						}
 					}
-
-					nestedUnknown := compareFields(actualFieldPath, nested, validFields)
-					unknown = append(unknown, nestedUnknown...)
 				}
 
-				// Check arrays
-				if arr, ok := value.([]any); ok {
-					for _, item := range arr {
-						if nestedMap, ok := item.(map[string]any); ok {
-							// Check against array element pattern
-							actualFieldPath := findActualFieldPath(fieldPath, validFields)
-							arrayPattern := actualFieldPath + "[]"
-							nestedUnknown := compareFields(arrayPattern, nestedMap, validFields)
-							unknown = append(unknown, nestedUnknown...)
+				if !skipNestedValidation {
+					// Recursively check nested objects
+					if nested, ok := value.(map[string]any); ok {
+						// Find the actual field path for nested objects
+						actualFieldPath := findActualFieldPath(fieldPath, validFields)
+
+						// If we validated using a wildcard pattern, use the wildcard for recursion
+						if actualFieldPath == fieldPath && prefix != "" && validFields[prefix+".*"] {
+							// Replace the last component with wildcard
+							parts := strings.Split(fieldPath, ".")
+							if len(parts) > 0 {
+								parts[len(parts)-1] = "*"
+								actualFieldPath = strings.Join(parts, ".")
+							}
+						}
+
+						nestedUnknown := compareFields(actualFieldPath, nested, validFields)
+						unknown = append(unknown, nestedUnknown...)
+					}
+
+					// Check arrays
+					if arr, ok := value.([]any); ok {
+						for _, item := range arr {
+							if nestedMap, ok := item.(map[string]any); ok {
+								// Check against array element pattern
+								actualFieldPath := findActualFieldPath(fieldPath, validFields)
+								arrayPattern := actualFieldPath + "[]"
+								nestedUnknown := compareFields(arrayPattern, nestedMap, validFields)
+								unknown = append(unknown, nestedUnknown...)
+							}
 						}
 					}
 				}
