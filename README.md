@@ -18,6 +18,16 @@ A lightweight, zero-dependency, and highly extensible configuration management l
 - **Validation** - Built-in validation support through plugins
 - **Documentation Generation** - Auto-generate markdown documentation for your configuration
 
+## AI Agent Skills
+
+This repository includes [AI agent skills](https://github.com/sxwebdev/skills) with documentation and usage examples for all packages. Install them with the [skills](https://github.com/sxwebdev/skills) CLI:
+
+```bash
+go install github.com/sxwebdev/skills/cmd/skills@latest
+skills init
+skills repo add sxwebdev/xconfig
+```
+
 ## Installation
 
 ```bash
