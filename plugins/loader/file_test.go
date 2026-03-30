@@ -194,7 +194,9 @@ func TestBadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	open.Close() // close it so we get an error!
+	if err := open.Close(); err != nil {
+		t.Fatalf("failed to close file: %v", err)
+	}
 	reader := loader.NewReader(open, json.Unmarshal)
 
 	value := f.Config{}

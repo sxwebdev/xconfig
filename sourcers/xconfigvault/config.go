@@ -29,6 +29,39 @@ type Config struct {
 	// KVVersion specifies KV secrets engine version (1 or 2).
 	// Defaults to 2 if not specified.
 	KVVersion int
+
+	// SecretPath is the KV path where secrets for this service are stored.
+	// Used by VaultPlugin to batch-load all secrets in a single request.
+	// Example: "kv/myservice/config" (for KV v2, "data/" is added automatically).
+	SecretPath string
+
+	// Metrics is an optional callback for operational events (auth, retry, errors).
+	// Used by the parent service for alerting and monitoring.
+	Metrics MetricsCallback
+
+	// Renew configures token renewal behavior.
+	// If nil, defaults are used.
+	Renew *RenewConfig
+}
+
+// RenewConfig configures token renewal behavior.
+type RenewConfig struct {
+	// Fraction is the fraction of the lease duration at which renewal is triggered.
+	// For example, 0.8 means renew when 80% of the lease has elapsed.
+	// Defaults to 0.8.
+	Fraction float64
+
+	// NearExpiryThreshold is the minimum time before expiry that triggers a refresh.
+	// Defaults to 5 minutes.
+	NearExpiryThreshold time.Duration
+
+	// CheckInterval is how often the background renewal loop checks token state.
+	// Defaults to 60 seconds.
+	CheckInterval time.Duration
+
+	// MaxBackoff is the maximum backoff duration for retry attempts.
+	// Defaults to 30 seconds.
+	MaxBackoff time.Duration
 }
 
 // TLSConfig holds TLS configuration for Vault connection.
@@ -82,6 +115,16 @@ func DefaultCacheConfig() *CacheConfig {
 	}
 }
 
+// DefaultRenewConfig returns the default token renewal configuration.
+func DefaultRenewConfig() *RenewConfig {
+	return &RenewConfig{
+		Fraction:            0.8,
+		NearExpiryThreshold: 5 * time.Minute,
+		CheckInterval:       60 * time.Second,
+		MaxBackoff:          30 * time.Second,
+	}
+}
+
 func (c *Config) defaults() {
 	if c.DefaultMount == "" {
 		c.DefaultMount = "secret"
@@ -91,5 +134,8 @@ func (c *Config) defaults() {
 	}
 	if c.Cache == nil {
 		c.Cache = DefaultCacheConfig()
+	}
+	if c.Renew == nil {
+		c.Renew = DefaultRenewConfig()
 	}
 }

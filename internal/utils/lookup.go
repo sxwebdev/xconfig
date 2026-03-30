@@ -75,7 +75,7 @@ func lookup(i interface{}, caseInsensitive bool, path ...string) (reflect.Value,
 
 func getValueByName(v reflect.Value, key string, caseInsensitive bool) (reflect.Value, error) {
 	var value reflect.Value
-	var index int = -1
+	var index int
 	var err error
 
 	prevKey := key

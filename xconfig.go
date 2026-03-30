@@ -2,7 +2,10 @@
 package xconfig
 
 import (
+	"context"
 	"errors"
+	"sync"
+	"time"
 
 	"github.com/sxwebdev/xconfig/flat"
 	"github.com/sxwebdev/xconfig/plugins"
@@ -30,6 +33,14 @@ type Config interface {
 
 	// Fields returns the flat fields that have been processed by plugins.
 	Fields() flat.Fields
+
+	// StartRefresh starts a background goroutine that periodically calls Refresh
+	// on all plugins implementing plugins.Refreshable. The onChange callback is
+	// invoked with the list of changed fields whenever a refresh detects changes.
+	StartRefresh(ctx context.Context, interval time.Duration, onChange func([]plugins.FieldChange))
+
+	// StopRefresh stops the background refresh goroutine and waits for it to finish.
+	StopRefresh()
 }
 
 // Custom returns a new Config. The conf must be a pointer to a struct.
@@ -61,6 +72,9 @@ type config struct {
 	conf    any
 	fields  flat.Fields
 	options *options
+
+	refreshCancel context.CancelFunc
+	refreshWg     sync.WaitGroup
 }
 
 // Options returns the options for the config.
@@ -119,6 +133,43 @@ func (c *config) Parse() error {
 	}
 
 	return nil
+}
+
+func (c *config) StartRefresh(ctx context.Context, interval time.Duration, onChange func([]plugins.FieldChange)) {
+	ctx, c.refreshCancel = context.WithCancel(ctx)
+	c.refreshWg.Add(1)
+	go func() {
+		defer c.refreshWg.Done()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				for _, p := range c.plugins {
+					r, ok := p.(plugins.Refreshable)
+					if !ok {
+						continue
+					}
+					changes, err := r.Refresh(ctx)
+					if err != nil {
+						continue
+					}
+					if len(changes) > 0 && onChange != nil {
+						onChange(changes)
+					}
+				}
+			}
+		}
+	}()
+}
+
+func (c *config) StopRefresh() {
+	if c.refreshCancel != nil {
+		c.refreshCancel()
+		c.refreshWg.Wait()
+	}
 }
 
 // GetUnknownFields returns all unknown fields found in configuration files.

@@ -34,7 +34,11 @@ func TestUnknownFieldsDetection(t *testing.T) {
 	if err := os.WriteFile(testFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
-	defer os.Remove(testFile)
+	defer func() {
+		if err := os.Remove(testFile); err != nil {
+			t.Errorf("failed to remove test file: %v", err)
+		}
+	}()
 
 	l, err := loader.NewLoader(map[string]loader.Unmarshal{
 		".json": json.Unmarshal,
@@ -114,7 +118,11 @@ func TestDisallowUnknownFields(t *testing.T) {
 	if err := os.WriteFile(testFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
-	defer os.Remove(testFile)
+	defer func() {
+		if err := os.Remove(testFile); err != nil {
+			t.Errorf("failed to remove test file: %v", err)
+		}
+	}()
 
 	l, err := loader.NewLoader(map[string]loader.Unmarshal{
 		".json": json.Unmarshal,
@@ -170,7 +178,11 @@ func TestNoUnknownFields(t *testing.T) {
 	if err := os.WriteFile(testFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
-	defer os.Remove(testFile)
+	defer func() {
+		if err := os.Remove(testFile); err != nil {
+			t.Errorf("failed to remove test file: %v", err)
+		}
+	}()
 
 	l, err := loader.NewLoader(map[string]loader.Unmarshal{
 		".json": json.Unmarshal,
@@ -240,7 +252,11 @@ func TestNestedUnknownFields(t *testing.T) {
 	if err := os.WriteFile(testFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
-	defer os.Remove(testFile)
+	defer func() {
+		if err := os.Remove(testFile); err != nil {
+			t.Errorf("failed to remove test file: %v", err)
+		}
+	}()
 
 	l, err := loader.NewLoader(map[string]loader.Unmarshal{
 		".json": json.Unmarshal,
@@ -336,7 +352,11 @@ func TestArraysWithUnknownFields(t *testing.T) {
 	if err := os.WriteFile(testFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
-	defer os.Remove(testFile)
+	defer func() {
+		if err := os.Remove(testFile); err != nil {
+			t.Errorf("failed to remove test file: %v", err)
+		}
+	}()
 
 	l, err := loader.NewLoader(map[string]loader.Unmarshal{
 		".json": json.Unmarshal,

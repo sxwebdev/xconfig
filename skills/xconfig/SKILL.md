@@ -6,12 +6,20 @@ description: >-
   the xconfig codebase — editing plugins, decoders, flat field processing, loaders, or
   tests. Also triggers when code imports "xconfig", "sxwebdev/xconfig", or references
   xconfig.Load, xconfig.Custom, flat.View, flat.Fields, plugins.Plugin, plugins.Walker,
-  plugins.Visitor, loader.NewLoader, secret.New, validate.New, defaults, customdefaults,
-  env, flag plugins, xconfigyaml, xconfigdotenv, xconfigvault, or GenerateMarkdown. Applies
-  when the user mentions Go config management, struct tag configuration, environment variable
-  loading, config file parsing, secret providers, config validation, or documentation generation
-  in the context of this library.
-user-invocable: false
+  plugins.Visitor, plugins.Refreshable, plugins.FieldChange, loader.NewLoader, secret.New,
+  validate.New, defaults, customdefaults, env, flag plugins, xconfigyaml, xconfigdotenv,
+  xconfigvault, VaultPlugin, MetricsCallback, StartRefresh, StopRefresh, or GenerateMarkdown.
+  Applies when the user mentions Go config management, struct tag configuration, environment
+  variable loading, config file parsing, secret providers, vault integration, token renewal,
+  background config refresh, config validation, or documentation generation in the context
+  of this library.
+user-invocable: true
+license: MIT
+metadata:
+  author: "sxwebdev"
+  version: "1.1.0"
+  repo: "github.com/sxwebdev/xconfig"
+allowed-tools: Read Edit Write Glob Grep Agent AskUserQuestion
 ---
 
 # xconfig — Go Configuration Management Library
@@ -44,7 +52,7 @@ flat/
   field.go          — Field interface + field impl (Set, IsZero, type coercion)
 
 plugins/
-  plugins.go        — Plugin, Walker, Visitor interfaces; RegisterTag()
+  plugins.go        — Plugin, Walker, Visitor, Refreshable interfaces; RegisterTag(); FieldChange
   defaults/         — Reads `default` struct tag, sets zero-valued fields
   customdefaults/   — Calls SetDefaults() if implemented
   env/              — Reads `env` struct tag, loads from os.Getenv
@@ -59,7 +67,8 @@ decoders/
   xconfigjson/      — JSON decoder (encoding/json)
 
 sourcers/
-  xconfigvault/     — HashiCorp Vault secret sourcer with caching & TLS
+  xconfigvault/     — HashiCorp Vault plugin with batch loading, token renewal,
+                      auto-retry, metrics callback, VaultPlugin (Visitor+Refreshable)
 ```
 
 ### Loading order
@@ -74,21 +83,29 @@ sourcers/
 6. **flag** — overrides from CLI flags
 7. **user plugins** — any plugins passed via `WithPlugins()`
 
-Later sources override earlier ones. This means: flags > env > defaults > files > SetDefaults().
+Later sources override earlier ones. This means: vault > flags > env > defaults > files > SetDefaults().
+
+### Background refresh
+
+Plugins implementing `plugins.Refreshable` support background config updates. Call
+`Config.StartRefresh(ctx, interval, onChange)` after `Load()` to periodically re-fetch
+values from external sources (Vault, Consul, etcd, etc.). The `onChange` callback receives
+`[]plugins.FieldChange` with full field paths (e.g., `Database.Postgres.Password`).
 
 ### Struct tags
 
-| Tag        | Plugin   | Purpose                               | Example                 |
-| ---------- | -------- | ------------------------------------- | ----------------------- |
-| `default`  | defaults | Default value                         | `default:"8080"`        |
-| `env`      | env      | Environment variable name             | `env:"PORT"`            |
-| `flag`     | flag     | CLI flag name                         | `flag:"port"`           |
-| `secret`   | secret   | Secret identifier                     | `secret:"DB_PASSWORD"`  |
-| `usage`    | usage    | Help/doc description                  | `usage:"Server port"`   |
-| `xconfig`  | flat     | Override field name in flat structure | `xconfig:"custom_name"` |
-| `validate` | validate | Validation rules (go-playground)      | `validate:"required"`   |
-| `required` | markdown | Mark field as required in docs        | `required:"true"`       |
-| `example`  | markdown | Example value for docs                | `example:"https://..."` |
+| Tag        | Plugin       | Purpose                               | Example                 |
+| ---------- | ------------ | ------------------------------------- | ----------------------- |
+| `default`  | defaults     | Default value                         | `default:"8080"`        |
+| `env`      | env          | Environment variable name             | `env:"PORT"`            |
+| `flag`     | flag         | CLI flag name                         | `flag:"port"`           |
+| `secret`   | secret       | Marks field as secret (metadata)      | `secret:"true"`         |
+| `vault`    | xconfigvault | Field sourced from Vault              | `vault:"true"`          |
+| `usage`    | usage        | Help/doc description                  | `usage:"Server port"`   |
+| `xconfig`  | flat         | Override field name in flat structure  | `xconfig:"custom_name"` |
+| `validate` | validate     | Validation rules (go-playground)      | `validate:"required"`   |
+| `required` | markdown     | Mark field as required in docs        | `required:"true"`       |
+| `example`  | markdown     | Example value for docs                | `example:"https://..."` |
 
 ### Flat fields
 
@@ -123,12 +140,15 @@ Maps with struct values are supported: each map key becomes a prefix segment.
 3. Register with `loader.NewLoader(map[string]loader.Unmarshal{"toml": myDecoder.Unmarshal})`.
 4. The decoder is pure unmarshaling — it does not interact with the plugin system directly.
 
-### Adding a new secret sourcer
+### Adding a new sourcer plugin
 
-1. Create a package under `sourcers/` (e.g., `sourcers/xconfigaws/`).
-2. Implement `func(string) (string, error)` — the `secret.Sourcer` signature.
-3. Wire via `xconfig.WithPlugins(secret.New(mySourcer))`.
-4. See `sourcers/xconfigvault/` for a full implementation with caching, TLS, and auth methods.
+1. Create a package under `sourcers/` (e.g., `sourcers/xconfigconsul/`).
+2. Register a unique struct tag via `plugins.RegisterTag("consul")` in `init()`.
+3. Implement `plugins.Visitor` (Visit collects tagged fields, Parse batch-loads values).
+4. Optionally implement `plugins.Refreshable` for background config updates.
+5. Wire via `xconfig.WithPlugins(mySourcer.Plugin())`.
+6. See `sourcers/xconfigvault/` for a full implementation with batch loading, token renewal,
+   auto-retry, metrics callback, and Refreshable support.
 
 ### Working with the loader
 
@@ -155,17 +175,37 @@ The loader tracks `PresentFields()` — which leaf fields were explicitly set in
 ```go
 import "github.com/sxwebdev/xconfig/sourcers/xconfigvault"
 
-client, err := xconfigvault.New(&xconfigvault.Config{
-    Address:      "https://vault.example.com:8200",
-    Auth:         xconfigvault.WithToken("s.xxx"),
-    DefaultMount: "secret",
-    KVVersion:    2,
-})
+type Config struct {
+    Host       string `env:"HOST" default:"localhost"`
+    DBPassword string `vault:"true" env:"DB_PASSWORD" secret:"true"`
+    APIKey     string `vault:"true" env:"API_KEY" secret:"true"`
+}
 
-_, err = xconfig.Load(cfg, xconfig.WithPlugins(secret.New(client.Sourcer())))
+client, err := xconfigvault.New(&xconfigvault.Config{
+    Address:    "https://vault.example.com:8200",
+    Auth:       xconfigvault.WithKubernetes("my-service-role"),
+    SecretPath: "kv/myservice/config",
+    Metrics:    xconfigvault.MetricsFunc(func(e xconfigvault.Event) {
+        promCounter.WithLabelValues(string(e.Type)).Inc()
+    }),
+})
+defer client.Close()
+
+var cfg Config
+xc, err := xconfig.Load(&cfg, xconfig.WithPlugins(client.Plugin()))
+
+// Background refresh — detects secret rotation in Vault
+xc.StartRefresh(ctx, 1*time.Minute, func(changes []plugins.FieldChange) {
+    for _, c := range changes {
+        slog.Info("config changed", "field", c.FieldName)
+    }
+})
+defer xc.StopRefresh()
 ```
 
-Vault client supports: token auth, AppRole, Kubernetes, UserPass, LDAP. See `references/vault.md`.
+Vault client features: token/AppRole/Kubernetes/UserPass/LDAP auth, token renewal loop,
+auto-retry on 401/403, metrics callback, batch loading, background refresh.
+See `references/vault.md`.
 
 ### Writing tests
 
@@ -188,7 +228,7 @@ type Config struct {
     Redis struct {
         Host     string `default:"localhost" env:"REDIS_HOST" flag:"redis-host" usage:"Redis host"`
         Port     int    `default:"6379" env:"REDIS_PORT" flag:"redis-port" usage:"Redis port"`
-        Password string `secret:"REDIS_PASSWORD" usage:"Redis password"`
+        Password string `vault:"true" env:"REDIS_PASSWORD" secret:"true" usage:"Redis password"`
     }
 }
 ```
@@ -242,8 +282,11 @@ func (p *httpPlugin) Parse() error {
 
 ## Key principles
 
-- **Plugin order matters.** Later plugins override earlier ones. Understand the loading chain before modifying `load.go` to avoid subtle precedence bugs.
+- **Plugin order matters.** Later plugins override earlier ones. Vault plugin runs last and has maximum priority. Understand the loading chain before modifying `load.go` to avoid subtle precedence bugs.
 - **Visitor vs Walker.** Use Visitor when you need flat field access with metadata (env, flags, secrets). Use Walker when you need the raw struct (file loading, custom defaults). A plugin can implement both.
+- **Refreshable is generic.** Any plugin can implement `plugins.Refreshable` for background config updates. The `Config.StartRefresh()` loop iterates all Refreshable plugins. This is not vault-specific — future sourcers (consul, etcd, SSM) should implement the same interface.
+- **Vault tag is separate from secret tag.** `vault:"true"` marks a field to be sourced from Vault. `secret:"true"` marks a field as sensitive (for masking/docs). They are independent — a field can have both, one, or neither.
+- **Vault key derivation.** VaultPlugin uses `f.Meta()["env"]` (set by the env plugin) as the vault key if available, otherwise `f.EnvName()`. This means vault keys should match env var names.
 - **Zero-value semantics.** The defaults plugin only sets fields that are zero-valued. If a file loader sets a field, defaults won't overwrite it. This is intentional — don't change this behavior.
 - **Tag registration prevents collisions.** Always call `plugins.RegisterTag()` in `init()` for new tags. This panics at startup if two plugins claim the same tag, catching errors early.
 - **Map sync callback.** Map struct values are copied for addressability. After `field.Set()`, the `mapSync` callback writes the copy back to the map. Never remove this mechanism — it's required for map-based config to work.

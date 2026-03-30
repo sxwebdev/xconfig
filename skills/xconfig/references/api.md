@@ -68,8 +68,14 @@ type Config interface {
     Usage() (string, error)      // Generate text usage information
     Options() *options           // Access configured options
     Fields() flat.Fields         // Access flattened fields
+    StartRefresh(ctx context.Context, interval time.Duration, onChange func([]plugins.FieldChange))
+    StopRefresh()
 }
 ```
+
+`StartRefresh` starts a background goroutine that periodically calls `Refresh(ctx)` on all
+plugins implementing `plugins.Refreshable`. The `onChange` callback is invoked with changed
+fields (full paths like `Database.Postgres.Password`). Call `StopRefresh()` for graceful shutdown.
 
 ## flat package
 
@@ -114,9 +120,22 @@ type Visitor interface {
     Plugin
     Visit(fields flat.Fields) error
 }
+
+// Refreshable — plugin supports background config refresh
+type Refreshable interface {
+    Plugin
+    Refresh(ctx context.Context) ([]FieldChange, error)
+}
+
+// FieldChange describes a config field change detected during refresh
+type FieldChange struct {
+    FieldName string // Full path: "Database.Postgres.Password"
+    OldValue  string
+    NewValue  string
+}
 ```
 
-A plugin can implement both Walker and Visitor.
+A plugin can implement multiple interfaces (Walker + Visitor, Visitor + Refreshable, etc.).
 
 ## Built-in plugins
 

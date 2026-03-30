@@ -3,6 +3,7 @@
 package plugins
 
 import (
+	"context"
 	"errors"
 	"log"
 	"runtime"
@@ -46,4 +47,23 @@ func RegisterTag(name string) {
 
 	pc, _, _, _ := runtime.Caller(1) //nolint:dogsled
 	tags[name] = runtime.FuncForPC(pc).Name()
+}
+
+// FieldChange describes a single config field change detected during refresh.
+type FieldChange struct {
+	// FieldName is the full flat field path, e.g. "Database.Postgres.Password".
+	FieldName string
+	// OldValue is the previous value.
+	OldValue string
+	// NewValue is the updated value.
+	NewValue string
+}
+
+// Refreshable is implemented by plugins that support background config refresh.
+// Examples: vault, consul, etcd, AWS SSM sourcers.
+type Refreshable interface {
+	Plugin
+	// Refresh re-fetches values from the external source, updates changed fields,
+	// and returns a list of changes. Called periodically by Config.StartRefresh.
+	Refresh(ctx context.Context) ([]FieldChange, error)
 }

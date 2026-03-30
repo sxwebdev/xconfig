@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/vault-client-go"
 )
@@ -19,6 +21,7 @@ type Client struct {
 	config  *Config
 	cache   *secretCache
 	watcher *secretWatcher
+	renewer *tokenRenewer
 
 	mu          sync.RWMutex
 	renewCancel context.CancelFunc
@@ -85,6 +88,12 @@ func New(cfg *Config) (*Client, error) {
 		cache:  newSecretCache(cfg.Cache),
 	}
 
+	c.emitEvent(EventAuthSuccess, nil)
+
+	// Start token renewal loop.
+	c.renewer = newTokenRenewer(vaultClient, cfg.Auth, cfg.Metrics, cfg.Renew)
+	c.renewer.start(ctx)
+
 	return c, nil
 }
 
@@ -125,6 +134,18 @@ func NewFromEnv() (*Client, error) {
 	return New(cfg)
 }
 
+// emitEvent sends an event to the metrics callback if configured.
+func (c *Client) emitEvent(typ EventType, err error) {
+	if c.config.Metrics == nil {
+		return
+	}
+	c.config.Metrics.OnEvent(Event{
+		Type:      typ,
+		Error:     err,
+		Timestamp: time.Now(),
+	})
+}
+
 // Close gracefully shuts down the client, stopping all background workers.
 func (c *Client) Close() error {
 	c.mu.Lock()
@@ -137,8 +158,8 @@ func (c *Client) Close() error {
 	c.closed = true
 
 	// Stop token renewal
-	if c.renewCancel != nil {
-		c.renewCancel()
+	if c.renewer != nil {
+		c.renewer.stop()
 	}
 
 	// Stop watcher
@@ -175,8 +196,8 @@ func (c *Client) Get(ctx context.Context, path string) (string, error) {
 		return value, nil
 	}
 
-	// Fetch from Vault
-	data, version, err := c.fetchSecret(ctx, secretPath)
+	// Fetch from Vault with retry on auth errors.
+	data, version, err := c.fetchWithRetry(ctx, secretPath)
 	if err != nil {
 		return "", err
 	}
@@ -212,8 +233,8 @@ func (c *Client) GetMap(ctx context.Context, path string) (map[string]string, er
 		return convertToStringMap(data), nil
 	}
 
-	// Fetch from Vault
-	data, version, err := c.fetchSecret(ctx, path)
+	// Fetch from Vault with retry on auth errors.
+	data, version, err := c.fetchWithRetry(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +258,58 @@ func (c *Client) SourcerWithContext(ctx context.Context) func(string) (string, e
 	return func(name string) (string, error) {
 		return c.Get(ctx, name)
 	}
+}
+
+// fetchWithRetry wraps fetchSecret with automatic retry on auth errors (401/403).
+// On retryable errors, it triggers token refresh and retries up to 3 times.
+func (c *Client) fetchWithRetry(ctx context.Context, path string) (map[string]any, int, error) {
+	const maxRetries = 3
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		data, version, err := c.fetchSecret(ctx, path)
+		if err == nil {
+			if attempt > 0 {
+				c.emitEvent(EventSecretsFetched, nil)
+			}
+			return data, version, nil
+		}
+
+		if !isRetryable(err) {
+			return nil, 0, err
+		}
+
+		if c.config.Metrics != nil {
+			c.config.Metrics.OnEvent(Event{
+				Type:      EventRetryAttempt,
+				Error:     err,
+				Attempt:   attempt + 1,
+				Timestamp: time.Now(),
+			})
+		}
+
+		if c.renewer != nil {
+			// Use a short timeout for token refresh during retry.
+			refreshCtx, refreshCancel := context.WithTimeout(ctx, 10*time.Second)
+			_ = c.renewer.refreshNow(refreshCtx)
+			refreshCancel()
+		}
+
+		lastErr = err
+		backoff := min(time.Second<<uint(attempt), 30*time.Second)
+		select {
+		case <-ctx.Done():
+			return nil, 0, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+
+	return nil, 0, lastErr
+}
+
+// isRetryable returns true for auth-related errors that may be resolved by token refresh.
+func isRetryable(err error) bool {
+	return errors.Is(err, ErrPermissionDenied) || errors.Is(err, ErrTokenExpired)
 }
 
 // fetchSecret fetches a secret from Vault.

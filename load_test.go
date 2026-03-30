@@ -50,16 +50,15 @@ func TestClassicBasic(t *testing.T) {
 		t.Fatalf("failed to create loader: %v", err)
 	}
 
-	l.AddFile("testdata/classic.json", true)
+	if err := l.AddFile("testdata/classic.json", true); err != nil {
+		t.Fatalf("failed to add file: %v", err)
+	}
 
 	value := f.Config{}
 
 	// set some env vars to test env var and plugin orders.
-	os.Setenv("VERSION", "bad-value-overrided-with-flags")
-	os.Setenv("REDIS_HOST", "from-envs")
-
-	defer os.Unsetenv("VERSION")
-	defer os.Unsetenv("REDIS_HOST")
+	t.Setenv("VERSION", "bad-value-overrided-with-flags")
+	t.Setenv("REDIS_HOST", "from-envs")
 
 	// patch the os.Args. for our tests.
 	os.Args = append(os.Args[:1], "-version=from-flags")
@@ -132,7 +131,9 @@ func TestClassicWithSecret(t *testing.T) {
 
 	// patch the os.Args. for our tests.
 	os.Args = os.Args[:1]
-	os.Unsetenv("REDIS_HOST")
+	if err := os.Unsetenv("REDIS_HOST"); err != nil {
+		t.Fatalf("failed to unset env: %v", err)
+	}
 
 	_, err = xconfig.Load(&value, xconfig.WithLoader(l), xconfig.WithPlugins(secret.New(SecretProvider)))
 	if err != nil {

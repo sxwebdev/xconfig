@@ -1,7 +1,6 @@
 package env_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -57,14 +56,8 @@ func TestEnvBasic(t *testing.T) {
 	}
 
 	for key, value := range envs {
-		os.Setenv(key, value)
+		t.Setenv(key, value)
 	}
-
-	defer func() {
-		for key := range envs {
-			os.Unsetenv(key)
-		}
-	}()
 
 	value := f.Config{Rethink: f.RethinkConfig{Db: "must-be-override-by-empty-env"}}
 
@@ -93,7 +86,7 @@ func TestEnvTag(t *testing.T) {
 	}
 
 	for key, value := range envs {
-		os.Setenv(key, value)
+		t.Setenv(key, value)
 	}
 
 	expect := fEnv{
