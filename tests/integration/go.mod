@@ -4,7 +4,6 @@ go 1.25.0
 
 require (
 	github.com/go-playground/validator/v10 v10.30.1
-	github.com/google/go-cmp v0.7.0
 	github.com/sxwebdev/xconfig v0.3.2
 	github.com/sxwebdev/xconfig/decoders/xconfigyaml v0.0.0
 )

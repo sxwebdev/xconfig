@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/google/go-cmp/cmp"
 	"github.com/sxwebdev/xconfig"
 	"github.com/sxwebdev/xconfig/decoders/xconfigyaml"
+	"github.com/sxwebdev/xconfig/internal/testutil"
 	"github.com/sxwebdev/xconfig/plugins/loader"
 	"github.com/sxwebdev/xconfig/plugins/validate"
 )
@@ -250,9 +250,7 @@ func TestMapDefaultsWithJSON(t *testing.T) {
 		},
 	}
 
-	if diff := cmp.Diff(expect, *cfg); diff != "" {
-		t.Errorf("Config mismatch (-want +got):\n%s", diff)
-	}
+	testutil.Equal(t, expect, *cfg)
 }
 
 func TestMapDefaultsWithYaml(t *testing.T) {
@@ -436,7 +434,5 @@ indexers:
 		},
 	}
 
-	if diff := cmp.Diff(expect, *cfg); diff != "" {
-		t.Errorf("Config mismatch (-want +got):\n%s", diff)
-	}
+	testutil.Equal(t, expect, *cfg)
 }

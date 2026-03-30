@@ -3,7 +3,7 @@ package f
 import (
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
+	"github.com/sxwebdev/xconfig/internal/testutil"
 )
 
 func TestUnmarshalerStringSlice(t *testing.T) {
@@ -15,7 +15,5 @@ func TestUnmarshalerStringSlice(t *testing.T) {
 		t.Error(err)
 	}
 
-	if diff := cmp.Diff(expect, value); diff != "" {
-		t.Error(diff)
-	}
+	testutil.Equal(t, expect, value)
 }

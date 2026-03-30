@@ -7,9 +7,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/sxwebdev/xconfig"
 	"github.com/sxwebdev/xconfig/internal/f"
+	"github.com/sxwebdev/xconfig/internal/testutil"
 	"github.com/sxwebdev/xconfig/plugins/loader"
 )
 
@@ -77,9 +77,7 @@ func TestFileReader(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if diff := cmp.Diff(expect, value); diff != "" {
-			t.Error(diff)
-		}
+		testutil.Equal(t, expect, value)
 
 	}
 }
@@ -132,9 +130,7 @@ func TestFileOpen(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if diff := cmp.Diff(expect, value); diff != "" {
-			t.Error(diff)
-		}
+		testutil.Equal(t, expect, value)
 
 	}
 }
@@ -183,9 +179,7 @@ func TestMulti(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if diff := cmp.Diff(expect, value); diff != "" {
-		t.Error(diff)
-	}
+	testutil.Equal(t, expect, value)
 }
 
 func TestBadFile(t *testing.T) {

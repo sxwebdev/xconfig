@@ -7,9 +7,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/sxwebdev/xconfig"
 	"github.com/sxwebdev/xconfig/internal/f"
+	"github.com/sxwebdev/xconfig/internal/testutil"
 	"github.com/sxwebdev/xconfig/plugins/loader"
 	"github.com/sxwebdev/xconfig/plugins/secret"
 )
@@ -68,9 +68,7 @@ func TestClassicBasic(t *testing.T) {
 		t.Fatalf("failed to load config: %v", err)
 	}
 
-	if diff := cmp.Diff(expect, value); diff != "" {
-		t.Error(diff)
-	}
+	testutil.Equal(t, expect, value)
 }
 
 func TestClassicWithSecret(t *testing.T) {
@@ -140,9 +138,7 @@ func TestClassicWithSecret(t *testing.T) {
 		t.Fatalf("failed to load config: %v", err)
 	}
 
-	if diff := cmp.Diff(expect, value); diff != "" {
-		t.Error(diff)
-	}
+	testutil.Equal(t, expect, value)
 }
 
 func TestClassicBadPlugin(t *testing.T) {

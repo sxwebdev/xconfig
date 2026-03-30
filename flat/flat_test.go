@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/sxwebdev/xconfig/flat"
 	"github.com/sxwebdev/xconfig/internal/f"
+	"github.com/sxwebdev/xconfig/internal/testutil"
 )
 
 func TestFlattenNested(t *testing.T) {
@@ -170,7 +170,5 @@ func TestFlattenTypes(t *testing.T) {
 		}
 	}
 
-	if diff := cmp.Diff(expect, value); diff != "" {
-		t.Error(diff)
-	}
+	testutil.Equal(t, expect, value)
 }

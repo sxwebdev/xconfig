@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/sxwebdev/xconfig/flat"
+	"github.com/sxwebdev/xconfig/internal/testutil"
 )
 
 func TestField(t *testing.T) {
@@ -53,9 +53,7 @@ func TestField(t *testing.T) {
 
 	meta1["test"] = "okay"
 
-	if diff := cmp.Diff(meta1, meta2); diff != "" {
-		t.Error(diff)
-	}
+	testutil.Equal(t, meta1, meta2)
 
 	if def := firstField.String(); def != "first" {
 		t.Errorf("expected String() to return default tag value but got %v", def)

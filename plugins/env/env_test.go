@@ -3,9 +3,9 @@ package env_test
 import (
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/sxwebdev/xconfig"
 	"github.com/sxwebdev/xconfig/internal/f"
+	"github.com/sxwebdev/xconfig/internal/testutil"
 	"github.com/sxwebdev/xconfig/plugins/env"
 )
 
@@ -71,9 +71,7 @@ func TestEnvBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if diff := cmp.Diff(expect, value); diff != "" {
-		t.Error(diff)
-	}
+	testutil.Equal(t, expect, value)
 }
 
 type fEnv struct {
@@ -105,7 +103,5 @@ func TestEnvTag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if diff := cmp.Diff(expect, value); diff != "" {
-		t.Error(diff)
-	}
+	testutil.Equal(t, expect, value)
 }

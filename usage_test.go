@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/sxwebdev/xconfig"
 	"github.com/sxwebdev/xconfig/flat"
 	"github.com/sxwebdev/xconfig/internal/f"
+	"github.com/sxwebdev/xconfig/internal/testutil"
 	"github.com/sxwebdev/xconfig/plugins"
 	"github.com/sxwebdev/xconfig/plugins/env"
 	"github.com/sxwebdev/xconfig/plugins/secret"
@@ -77,7 +77,5 @@ func TestUsage(t *testing.T) {
 
 	fmt.Println(output)
 
-	if diff := cmp.Diff(expectedUsageMessage, output); diff != "" {
-		t.Error(diff)
-	}
+	testutil.Equal(t, expectedUsageMessage, output)
 }

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/sxwebdev/xconfig"
+	"github.com/sxwebdev/xconfig/internal/testutil"
 	"github.com/sxwebdev/xconfig/plugins/secret"
 )
 
@@ -59,9 +59,7 @@ func TestSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if diff := cmp.Diff(expect, value); diff != "" {
-		t.Error(diff)
-	}
+	testutil.Equal(t, expect, value)
 }
 
 func TestSecretErr(t *testing.T) {
