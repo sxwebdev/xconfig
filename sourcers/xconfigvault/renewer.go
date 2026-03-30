@@ -12,13 +12,9 @@ import (
 )
 
 const (
-	defaultRenewFraction      = 0.8
-	defaultNearExpiryMinutes  = 5
-	defaultCheckIntervalSec   = 60
-	defaultMaxBackoffSec      = 30
-	loginDeadline             = 2 * time.Minute
-	renewDeadline             = 1 * time.Minute
-	initialBackoff            = 1 * time.Second
+	loginDeadline  = 2 * time.Minute
+	renewDeadline  = 1 * time.Minute
+	initialBackoff = 1 * time.Second
 )
 
 // tokenRenewer manages token lifecycle: background renewal, re-login, and coalescing.

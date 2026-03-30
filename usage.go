@@ -25,15 +25,21 @@ func (c *config) Usage() (string, error) {
 
 	buf := bytes.NewBuffer(nil)
 	w := tabwriter.NewWriter(buf, 0, 0, 4, ' ', 0)
-	fmt.Fprintf(w, "\nSupported Fields:\n")
-	fmt.Fprintln(w, strings.ToUpper(strings.Join(headers, "\t")))
+	if _, err := fmt.Fprintf(w, "\nSupported Fields:\n"); err != nil {
+		return "", err
+	}
+	if _, err := fmt.Fprintln(w, strings.ToUpper(strings.Join(headers, "\t"))); err != nil {
+		return "", err
+	}
 
 	dashes := make([]string, len(headers))
 	for i, f := range headers {
 		n := max(len(f), 5)
 		dashes[i] = strings.Repeat("-", n)
 	}
-	fmt.Fprintln(w, strings.Join(dashes, "\t"))
+	if _, err := fmt.Fprintln(w, strings.Join(dashes, "\t")); err != nil {
+		return "", err
+	}
 
 	for _, f := range c.fields {
 		if !f.FieldType().IsExported() {
@@ -61,7 +67,9 @@ func (c *config) Usage() (string, error) {
 			values[i+1] = value
 		}
 
-		fmt.Fprintln(w, strings.Join(values, "\t"))
+		if _, err := fmt.Fprintln(w, strings.Join(values, "\t")); err != nil {
+			return "", err
+		}
 	}
 
 	if err := w.Flush(); err != nil {
