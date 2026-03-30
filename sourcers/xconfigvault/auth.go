@@ -13,6 +13,9 @@ import (
 type AuthMethod interface {
 	// Login authenticates with Vault and sets the client token.
 	Login(ctx context.Context, client *vault.Client) error
+	// Relogin re-authenticates with Vault. For renewable auth methods (AppRole,
+	// Kubernetes, etc.) this calls Login again. For static token auth, returns an error.
+	Relogin(ctx context.Context, client *vault.Client) error
 	// Name returns the authentication method name for logging.
 	Name() string
 }
@@ -35,6 +38,10 @@ func (a *TokenAuth) Login(ctx context.Context, client *vault.Client) error {
 		return fmt.Errorf("%w: %v", ErrAuthFailed, err)
 	}
 	return nil
+}
+
+func (a *TokenAuth) Relogin(ctx context.Context, client *vault.Client) error {
+	return fmt.Errorf("%w: static token cannot be renewed", ErrAuthFailed)
 }
 
 func (a *TokenAuth) Name() string {
@@ -84,6 +91,10 @@ func (a *AppRoleAuth) Login(ctx context.Context, client *vault.Client) error {
 	}
 
 	return nil
+}
+
+func (a *AppRoleAuth) Relogin(ctx context.Context, client *vault.Client) error {
+	return a.Login(ctx, client)
 }
 
 func (a *AppRoleAuth) Name() string {
@@ -142,6 +153,10 @@ func (a *KubernetesAuth) Login(ctx context.Context, client *vault.Client) error 
 	return nil
 }
 
+func (a *KubernetesAuth) Relogin(ctx context.Context, client *vault.Client) error {
+	return a.Login(ctx, client)
+}
+
 func (a *KubernetesAuth) Name() string {
 	return "kubernetes"
 }
@@ -190,6 +205,10 @@ func (a *UserPassAuth) Login(ctx context.Context, client *vault.Client) error {
 	return nil
 }
 
+func (a *UserPassAuth) Relogin(ctx context.Context, client *vault.Client) error {
+	return a.Login(ctx, client)
+}
+
 func (a *UserPassAuth) Name() string {
 	return "userpass"
 }
@@ -236,6 +255,10 @@ func (a *LDAPAuth) Login(ctx context.Context, client *vault.Client) error {
 	}
 
 	return nil
+}
+
+func (a *LDAPAuth) Relogin(ctx context.Context, client *vault.Client) error {
+	return a.Login(ctx, client)
 }
 
 func (a *LDAPAuth) Name() string {
