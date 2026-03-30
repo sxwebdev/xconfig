@@ -4,10 +4,8 @@ go 1.25.0
 
 require (
 	github.com/hashicorp/vault-client-go v0.4.3
-	github.com/sxwebdev/xconfig v0.3.1
+	github.com/sxwebdev/xconfig v0.3.2
 )
-
-replace github.com/sxwebdev/xconfig => ../../
 
 require (
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect

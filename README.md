@@ -13,6 +13,8 @@ A lightweight, zero-dependency, and highly extensible configuration management l
 - **Plugin-Based Architecture** - Mix and match only the configuration sources you need
 - **Type-Safe** - Strongly typed configuration with struct tags
 - **Multiple Sources** - Support for defaults, environment variables, command-line flags, and config files
+- **HashiCorp Vault** - Native integration with batch loading, token renewal, auto-retry, and metrics
+- **Background Refresh** - Real-time config updates without restart via `Refreshable` plugins
 - **Nested Structures** - Full support for nested configuration structs
 - **Rich Type Support** - All basic Go types, `time.Duration`, and custom types via `encoding.TextUnmarshaler`
 - **Validation** - Built-in validation support through plugins
@@ -54,7 +56,7 @@ type Config struct {
         Host     string `default:"localhost" env:"DB_HOST" usage:"Database host"`
         Port     int    `default:"5432" env:"DB_PORT" usage:"Database port"`
         Name     string `default:"myapp" env:"DB_NAME" usage:"Database name"`
-        Password string `secret:"DB_PASSWORD" usage:"Database password"`
+        Password string `vault:"true" env:"DB_PASSWORD" secret:"true" usage:"Database password"`
     }
 }
 
@@ -83,6 +85,7 @@ The `Load` function provides the most common configuration pattern, automaticall
 3. Configuration files (if provided)
 4. Environment variables
 5. Command-line flags
+6. Custom plugins (Vault, etc.) — highest priority
 
 ```go
 type AppConfig struct {
@@ -174,37 +177,93 @@ _, err := xconfig.Load(cfg)
 // cfg.Host will be "localhost" unless overridden by env or flags
 ```
 
-### Secret Management
+### HashiCorp Vault Integration
 
-Use the `secret` tag for sensitive data that should be loaded from a secret provider:
+Use the `vault` tag to load secrets from HashiCorp Vault with automatic token renewal,
+batch loading, auto-retry on 401/403, and metrics callback:
 
 ```go
 import (
     "github.com/sxwebdev/xconfig"
-    "github.com/sxwebdev/xconfig/plugins/secret"
+    "github.com/sxwebdev/xconfig/sourcers/xconfigvault"
 )
 
 type Config struct {
-    DBPassword string `secret:"DATABASE_PASSWORD"`
-    APIToken   string `secret:"API_TOKEN"`
+    Host       string `default:"localhost" env:"HOST"`
+    DBPassword string `vault:"true" env:"DB_PASSWORD" secret:"true"`
+    APIKey     string `vault:"true" env:"API_KEY" secret:"true"`
 }
 
-// Custom secret provider (e.g., AWS Secrets Manager, HashiCorp Vault, etc.)
-secretProvider := func(name string) (string, error) {
-    // Implement your secret fetching logic here
-    switch name {
-    case "DATABASE_PASSWORD":
-        return fetchFromVault(name)
-    case "API_TOKEN":
-        return fetchFromAWS(name)
-    default:
-        return "", fmt.Errorf("secret not found: %s", name)
+// Create Vault client (supports Token, AppRole, Kubernetes, UserPass, LDAP auth)
+vaultClient, err := xconfigvault.New(&xconfigvault.Config{
+    Address:    os.Getenv("VAULT_ADDR"),
+    Auth:       xconfigvault.WithKubernetes("my-service-role"),
+    SecretPath: "kv/myservice/config",
+    Metrics:    xconfigvault.MetricsFunc(func(e xconfigvault.Event) {
+        // Monitor auth failures, retries, etc.
+        promCounter.WithLabelValues(string(e.Type)).Inc()
+    }),
+})
+if err != nil {
+    log.Fatal(err)
+}
+defer vaultClient.Close()
+
+cfg := &Config{}
+xc, err := xconfig.Load(cfg, xconfig.WithPlugins(vaultClient.Plugin()))
+```
+
+The Vault plugin:
+
+- Runs last in the plugin chain (maximum priority over env, flags, defaults)
+- Batch-loads all secrets in a single HTTP request
+- Automatically renews tokens in the background
+- Retries on 401/403 with token refresh
+- Emits operational events via `MetricsCallback`
+
+The `vault:"true"` tag marks a field to be sourced from Vault. The `secret:"true"` tag is
+independent — it marks a field as sensitive (for masking in logs/docs).
+
+### Background Config Refresh
+
+Plugins implementing `Refreshable` support real-time config updates without restart:
+
+```go
+xc.StartRefresh(ctx, 1*time.Minute, func(changes []plugins.FieldChange) {
+    for _, c := range changes {
+        log.Printf("config changed: %s %q -> %q", c.FieldName, c.OldValue, c.NewValue)
+        if c.FieldName == "Database.Password" {
+            reconnectDB(c.NewValue)
+        }
     }
+})
+defer xc.StopRefresh()
+```
+
+`FieldChange.FieldName` contains the full field path (e.g., `Database.Postgres.Password`).
+Any plugin implementing `plugins.Refreshable` participates in the refresh cycle automatically.
+
+### Secret Management (Legacy)
+
+The `secret` plugin loads sensitive data from a custom provider function:
+
+```go
+import "github.com/sxwebdev/xconfig/plugins/secret"
+
+type Config struct {
+    DBPassword string `secret:"DATABASE_PASSWORD"`
+}
+
+secretProvider := func(name string) (string, error) {
+    return fetchFromVault(name)
 }
 
 cfg := &Config{}
 _, err := xconfig.Load(cfg, xconfig.WithPlugins(secret.New(secretProvider)))
 ```
+
+For new projects, prefer the [Vault plugin](#hashicorp-vault-integration) which provides
+batch loading, token renewal, and background refresh out of the box.
 
 ### Validation
 
@@ -332,21 +391,23 @@ fmt.Println(usage)
 | `default` | Default value for the field           | `default:"8080"`        |
 | `env`     | Environment variable name             | `env:"PORT"`            |
 | `flag`    | Command-line flag name                | `flag:"port"`           |
-| `secret`  | Secret identifier for secret provider | `secret:"DB_PASSWORD"`  |
+| `secret`  | Marks field as sensitive (metadata)   | `secret:"true"`         |
+| `vault`   | Field sourced from HashiCorp Vault    | `vault:"true"`          |
 | `usage`   | Description for documentation/help    | `usage:"Server port"`   |
 | `xconfig` | Override field name in flat structure | `xconfig:"custom_name"` |
 
 ## Available Plugins
 
-| Plugin             | Description                                             |
-| ------------------ | ------------------------------------------------------- |
-| **defaults**       | Load values from `default` struct tags                  |
-| **customdefaults** | Call `SetDefaults()` method if implemented              |
-| **env**            | Load values from environment variables                  |
-| **flag**           | Load values from command-line flags                     |
-| **loader**         | Load values from configuration files (JSON, YAML, etc.) |
-| **secret**         | Load sensitive values from secret providers             |
-| **validate**       | Validate configuration after loading                    |
+| Plugin             | Description                                                   |
+| ------------------ | ------------------------------------------------------------- |
+| **defaults**       | Load values from `default` struct tags                        |
+| **customdefaults** | Call `SetDefaults()` method if implemented                    |
+| **env**            | Load values from environment variables                        |
+| **flag**           | Load values from command-line flags                           |
+| **loader**         | Load from configuration files (JSON, YAML, etc.)              |
+| **secret**         | Mark fields as sensitive, load from custom providers          |
+| **validate**       | Validate configuration after loading                          |
+| **xconfigvault**   | HashiCorp Vault: batch loading, token renewal, retry, refresh |
 
 ## Custom Plugins
 

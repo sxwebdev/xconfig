@@ -2,3 +2,7 @@ coverage.out
 coverage.out
 
 go.work*
+
+# AI
+/.agents
+/.claude

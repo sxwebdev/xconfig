@@ -6,7 +6,8 @@
 // xconfig enables you to build type-safe configuration for your applications using
 // a plugin-based architecture. Mix and match only the configuration sources you need:
 // defaults, environment variables, command-line flags, configuration files, secret
-// providers, and more.
+// providers, and more. Plugins implementing [plugins.Refreshable] support background
+// config refresh for real-time updates without restart.
 //
 // # Quick Start
 //
@@ -19,7 +20,7 @@
 //	    Database struct {
 //	        Host     string `default:"localhost" env:"DB_HOST" usage:"Database host"`
 //	        Port     int    `default:"5432" env:"DB_PORT" usage:"Database port"`
-//	        Password string `secret:"DB_PASSWORD" usage:"Database password"`
+//	        Password string `vault:"true" env:"DB_PASSWORD" secret:"true" usage:"Database password"`
 //	    }
 //	}
 //
@@ -37,6 +38,7 @@
 //  3. Configuration files (if provided)
 //  4. Environment variables
 //  5. Command-line flags
+//  6. Custom plugins (vault, etc.) — highest priority
 //
 // # Configuration Sources
 //
@@ -111,10 +113,50 @@
 //	    c.Port = 8080
 //	}
 //
+// # HashiCorp Vault Integration
+//
+// Use the vault plugin to load secrets from HashiCorp Vault with automatic token renewal,
+// batch loading, auto-retry, and background refresh:
+//
+//	import "github.com/sxwebdev/xconfig/sourcers/xconfigvault"
+//
+//	type Config struct {
+//	    DBPassword string `vault:"true" env:"DB_PASSWORD" secret:"true"`
+//	    APIKey     string `vault:"true" env:"API_KEY" secret:"true"`
+//	}
+//
+//	vaultClient, err := xconfigvault.New(&xconfigvault.Config{
+//	    Address:    os.Getenv("VAULT_ADDR"),
+//	    Auth:       xconfigvault.WithKubernetes("my-service-role"),
+//	    SecretPath: "kv/myservice/config",
+//	})
+//	defer vaultClient.Close()
+//
+//	cfg := &Config{}
+//	xc, err := xconfig.Load(cfg, xconfig.WithPlugins(vaultClient.Plugin()))
+//
+// The vault plugin runs last and has maximum priority over all other sources.
+// Use vault:"true" to mark fields sourced from Vault. The secret:"true" tag is
+// independent — it marks a field as sensitive (for masking in logs/docs).
+//
+// # Background Config Refresh
+//
+// Plugins implementing [plugins.Refreshable] support background updates.
+// Call [Config.StartRefresh] to periodically re-fetch values from external sources:
+//
+//	xc.StartRefresh(ctx, 1*time.Minute, func(changes []plugins.FieldChange) {
+//	    for _, c := range changes {
+//	        log.Printf("config changed: %s %q -> %q", c.FieldName, c.OldValue, c.NewValue)
+//	    }
+//	})
+//	defer xc.StopRefresh()
+//
+// FieldChange.FieldName contains the full field path (e.g., "Database.Postgres.Password").
+//
 // # Secret Management
 //
-// Use the secret plugin to load sensitive data from secret providers
-// like AWS Secrets Manager, HashiCorp Vault, or Kubernetes secrets:
+// Use the secret tag to mark fields as sensitive. The secret plugin can also load
+// values from a custom provider:
 //
 //	import "github.com/sxwebdev/xconfig/plugins/secret"
 //
@@ -124,7 +166,6 @@
 //	}
 //
 //	secretProvider := func(name string) (string, error) {
-//	    // Fetch from your secret backend
 //	    return fetchFromVault(name)
 //	}
 //
@@ -171,7 +212,8 @@
 //   - default: Default value for the field
 //   - env: Environment variable name
 //   - flag: Command-line flag name
-//   - secret: Secret identifier for secret provider
+//   - secret: Marks field as sensitive (metadata for masking/docs)
+//   - vault: Field sourced from HashiCorp Vault (vault:"true")
 //   - usage: Description for documentation and help text
 //   - xconfig: Override field name in flat structure
 //
@@ -191,7 +233,7 @@
 // # Custom Plugins
 //
 // Create custom plugins by implementing the Plugin interface with either
-// Walker or Visitor:
+// Walker or Visitor. For background refresh support, also implement Refreshable:
 //
 //	import (
 //	    "github.com/sxwebdev/xconfig/flat"
@@ -210,6 +252,12 @@
 //	func (p *myPlugin) Parse() error {
 //	    // Load configuration for each field
 //	    return nil
+//	}
+//
+//	// Optional: implement Refreshable for background updates
+//	func (p *myPlugin) Refresh(ctx context.Context) ([]plugins.FieldChange, error) {
+//	    // Re-fetch and return changes
+//	    return nil, nil
 //	}
 //
 //	// Use your plugin
