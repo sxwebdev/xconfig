@@ -70,7 +70,8 @@ func assignValue(v reflect.Value, parts []string, rawVal string) error {
 			fieldTypeNameNorm := normalize(field.Type.Name())
 
 			// если ни имя поля, ни имя его типа не совпадают с normalizedPrefix, пропускаем
-			if fieldNameNorm != normalizedPrefix && fieldTypeNameNorm != normalizedPrefix {
+			envTagNorm := normalize(field.Tag.Get("env"))
+			if fieldNameNorm != normalizedPrefix && fieldTypeNameNorm != normalizedPrefix && envTagNorm != normalizedPrefix {
 				continue
 			}
 

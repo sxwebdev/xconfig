@@ -1,6 +1,7 @@
 package xconfigvault
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -319,14 +320,14 @@ func TestAuthMethodNames(t *testing.T) {
 
 func TestNewClientValidation(t *testing.T) {
 	t.Run("nil config", func(t *testing.T) {
-		_, err := New(nil)
+		_, err := New(context.Background(), nil)
 		if err == nil {
-			t.Error("New(nil) should return error")
+			t.Error("New(context.Background(), nil) should return error")
 		}
 	})
 
 	t.Run("missing address", func(t *testing.T) {
-		_, err := New(&Config{
+		_, err := New(context.Background(), &Config{
 			Auth: WithToken("token"),
 		})
 		if err == nil {
@@ -335,7 +336,7 @@ func TestNewClientValidation(t *testing.T) {
 	})
 
 	t.Run("missing auth", func(t *testing.T) {
-		_, err := New(&Config{
+		_, err := New(context.Background(), &Config{
 			Address: "http://localhost:8200",
 		})
 		if err == nil {

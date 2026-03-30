@@ -29,7 +29,10 @@ type Client struct {
 }
 
 // New creates a new Vault client with the given configuration.
-func New(cfg *Config) (*Client, error) {
+// The provided context controls the initial authentication call.
+// The token renewal loop uses its own context, independent of ctx,
+// and is stopped via Close().
+func New(ctx context.Context, cfg *Config) (*Client, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
 	}
@@ -76,8 +79,7 @@ func New(cfg *Config) (*Client, error) {
 		}
 	}
 
-	// Authenticate
-	ctx := context.Background()
+	// Authenticate using the caller's context for timeout/cancellation.
 	if err := cfg.Auth.Login(ctx, vaultClient); err != nil {
 		return nil, err
 	}
@@ -90,21 +92,23 @@ func New(cfg *Config) (*Client, error) {
 
 	c.emitEvent(EventAuthSuccess, nil)
 
-	// Start token renewal loop.
+	// Start token renewal loop with its own context (stopped via Close()).
 	c.renewer = newTokenRenewer(vaultClient, cfg.Auth, cfg.Metrics, cfg.Renew)
-	c.renewer.start(ctx)
+	c.renewer.start(context.Background())
 
 	return c, nil
 }
 
 // NewFromEnv creates a Vault client configured from environment variables.
+// The provided context controls the initial authentication call.
+//
 // Environment variables:
 //   - VAULT_ADDR: Vault server address
 //   - VAULT_TOKEN: Authentication token (if using token auth)
 //   - VAULT_NAMESPACE: Vault namespace
 //   - VAULT_CACERT: Path to CA certificate
 //   - VAULT_SKIP_VERIFY: Skip TLS verification ("true" or "1")
-func NewFromEnv() (*Client, error) {
+func NewFromEnv(ctx context.Context) (*Client, error) {
 	addr := os.Getenv("VAULT_ADDR")
 	if addr == "" {
 		return nil, fmt.Errorf("VAULT_ADDR environment variable is required")
@@ -131,7 +135,7 @@ func NewFromEnv() (*Client, error) {
 		}
 	}
 
-	return New(cfg)
+	return New(ctx, cfg)
 }
 
 // emitEvent sends an event to the metrics callback if configured.
@@ -247,14 +251,7 @@ func (c *Client) GetMap(ctx context.Context, path string) (map[string]string, er
 
 // Sourcer returns a secret.Sourcer function compatible with xconfig's secret plugin.
 // The sourcer expects paths in format "mount/path#key" or "path#key".
-func (c *Client) Sourcer() func(string) (string, error) {
-	return func(name string) (string, error) {
-		return c.Get(context.Background(), name)
-	}
-}
-
-// SourcerWithContext returns a Sourcer that uses the provided context.
-func (c *Client) SourcerWithContext(ctx context.Context) func(string) (string, error) {
+func (c *Client) Sourcer(ctx context.Context) func(string) (string, error) {
 	return func(name string) (string, error) {
 		return c.Get(ctx, name)
 	}

@@ -75,14 +75,14 @@ func (c *Client) Watch(ctx context.Context, opts *WatchOptions) (<-chan SecretCh
 }
 
 // RegisterCallback registers a callback for secret changes on specific paths.
+// The provided context is used when starting the watcher (if not already running).
 // The callback is called synchronously when a change is detected.
-func (c *Client) RegisterCallback(paths []string, callback func(SecretChangeEvent)) {
+func (c *Client) RegisterCallback(ctx context.Context, paths []string, callback func(SecretChangeEvent)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.watcher == nil {
 		// Start a watcher if not already running
-		ctx := context.Background()
 		_, _ = c.Watch(ctx, &WatchOptions{
 			Paths: paths,
 		})

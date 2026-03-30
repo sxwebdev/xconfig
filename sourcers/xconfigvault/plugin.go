@@ -26,6 +26,7 @@ func init() {
 type VaultPlugin struct {
 	client     *Client
 	secretPath string
+	ctx        context.Context // used by Parse(); set at construction via Plugin(ctx)
 	fields     flat.Fields
 	keyMap     map[string]flat.Field // ENV_NAME -> field
 
@@ -34,10 +35,14 @@ type VaultPlugin struct {
 }
 
 // Plugin returns a new VaultPlugin for use with xconfig.WithPlugins().
-func (c *Client) Plugin() *VaultPlugin {
+// The provided context is used for the initial Parse() call.
+// The Refresh() method receives its own context from xconfig's StartRefresh
+// and is not affected by this context.
+func (c *Client) Plugin(ctx context.Context) *VaultPlugin {
 	return &VaultPlugin{
 		client:     c,
 		secretPath: c.config.SecretPath,
+		ctx:        ctx,
 	}
 }
 
@@ -71,7 +76,7 @@ func (p *VaultPlugin) Parse() error {
 		return nil
 	}
 
-	secrets, err := p.client.GetMap(context.Background(), p.secretPath)
+	secrets, err := p.client.GetMap(p.ctx, p.secretPath)
 	if err != nil {
 		return fmt.Errorf("vault: failed to load secrets from %s: %w", p.secretPath, err)
 	}

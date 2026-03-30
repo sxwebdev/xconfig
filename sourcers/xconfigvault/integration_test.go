@@ -155,7 +155,7 @@ func newTestClient(t *testing.T, opts ...func(*xconfigvault.Config)) *xconfigvau
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	client, err := xconfigvault.New(cfg)
+	client, err := xconfigvault.New(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("create vault client: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestBatchLoading(t *testing.T) {
 	client := newTestClient(t)
 
 	var cfg Config
-	_, err := xconfig.Load(&cfg, xconfig.WithSkipFlags(), xconfig.WithPlugins(client.Plugin()))
+	_, err := xconfig.Load(&cfg, xconfig.WithSkipFlags(), xconfig.WithPlugins(client.Plugin(context.Background())))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestSecretRotation(t *testing.T) {
 
 	client := newTestClient(t)
 	var cfg Config
-	xc, err := xconfig.Load(&cfg, xconfig.WithSkipFlags(), xconfig.WithPlugins(client.Plugin()))
+	xc, err := xconfig.Load(&cfg, xconfig.WithSkipFlags(), xconfig.WithPlugins(client.Plugin(context.Background())))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestMetricsCallback(t *testing.T) {
 	})
 
 	var cfg Config
-	_, err := xconfig.Load(&cfg, xconfig.WithSkipFlags(), xconfig.WithPlugins(client.Plugin()))
+	_, err := xconfig.Load(&cfg, xconfig.WithSkipFlags(), xconfig.WithPlugins(client.Plugin(context.Background())))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestVaultPriority(t *testing.T) {
 	client := newTestClient(t)
 
 	var cfg Config
-	_, err := xconfig.Load(&cfg, xconfig.WithSkipFlags(), xconfig.WithPlugins(client.Plugin()))
+	_, err := xconfig.Load(&cfg, xconfig.WithSkipFlags(), xconfig.WithPlugins(client.Plugin(context.Background())))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -476,7 +476,7 @@ func TestFullIntegration(t *testing.T) {
 	client := newTestClient(t)
 
 	var cfg AppConfig
-	xc, err := xconfig.Load(&cfg, xconfig.WithSkipFlags(), xconfig.WithPlugins(client.Plugin()))
+	xc, err := xconfig.Load(&cfg, xconfig.WithSkipFlags(), xconfig.WithPlugins(client.Plugin(context.Background())))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}

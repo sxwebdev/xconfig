@@ -123,6 +123,37 @@ type testConfig struct {
 	Test_4     string
 }
 
+// Struct with env tags (like VaultConfig)
+type envTagConfig struct {
+	Enabled    bool   `env:"VAULT_ENABLED"`
+	Address    string `env:"VAULT_ADDR"`
+	SecretPath string `env:"VAULT_SECRET_PATH"`
+	Role       string `env:"VAULT_ROLE"`
+	NoTag      string // no env tag, matched by field name
+}
+
+func TestDecoderUnmarshalWithEnvTags(t *testing.T) {
+	decoder := xconfigdotenv.New()
+
+	data := []byte(`
+VAULT_ENABLED=true
+VAULT_ADDR=http://vault:8200
+VAULT_SECRET_PATH=secret/data/myapp
+VAULT_ROLE=myrole
+NO_TAG=plain
+`)
+
+	var cfg envTagConfig
+	err := decoder.Unmarshal(data, &cfg)
+	assert.NoError(t, err)
+
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, "http://vault:8200", cfg.Address)
+	assert.Equal(t, "secret/data/myapp", cfg.SecretPath)
+	assert.Equal(t, "myrole", cfg.Role)
+	assert.Equal(t, "plain", cfg.NoTag)
+}
+
 var testDotEnvData = []byte(`
 BASE_URL_API=http://example.com/api
 BASE_URL_VERSION_NUMBER=2
