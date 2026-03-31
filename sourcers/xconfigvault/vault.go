@@ -177,6 +177,24 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// Healthy checks the Vault server health status.
+// Returns nil if the server is reachable and healthy, or an error otherwise.
+func (c *Client) Healthy(ctx context.Context) error {
+	c.mu.RLock()
+	if c.closed {
+		c.mu.RUnlock()
+		return ErrClientClosed
+	}
+	c.mu.RUnlock()
+
+	_, err := c.client.System.ReadHealthStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("vault health check failed: %w", err)
+	}
+
+	return nil
+}
+
 // Get retrieves a secret value from Vault.
 // Path format: "mount/path/to/secret#key" or "path/to/secret#key" (uses DefaultMount)
 // For KV v2, the path should not include "data/" - it will be added automatically.
