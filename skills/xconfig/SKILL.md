@@ -102,7 +102,7 @@ values from external sources (Vault, Consul, etcd, etc.). The `onChange` callbac
 | `secret`   | secret       | Marks field as secret (metadata)      | `secret:"true"`         |
 | `vault`    | xconfigvault | Field sourced from Vault              | `vault:"true"`          |
 | `usage`    | usage        | Help/doc description                  | `usage:"Server port"`   |
-| `xconfig`  | flat         | Override field name in flat structure  | `xconfig:"custom_name"` |
+| `xconfig`  | flat         | Override field name in flat structure | `xconfig:"custom_name"` |
 | `validate` | validate     | Validation rules (go-playground)      | `validate:"required"`   |
 | `required` | markdown     | Mark field as required in docs        | `required:"true"`       |
 | `example`  | markdown     | Example value for docs                | `example:"https://..."` |
