@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -95,10 +96,16 @@ func collectLeafPaths(prefix string, data any, out map[string]struct{}) {
 			collectLeafPaths(p, vv, out)
 		}
 	case []any:
-		// Arrays are represented as repeated elements; we don't include indexes.
-		// If arrays contain nested objects, we still want to collect their leaf keys.
-		for _, item := range v {
-			collectLeafPaths(prefix, item, out)
+		// Include the numeric index so per-element presence can be distinguished
+		// (needed so `is_enabled: false` on one slice element doesn't suppress
+		// defaults on siblings that omitted the key).
+		for i, item := range v {
+			idx := strconv.Itoa(i)
+			p := idx
+			if prefix != "" {
+				p = prefix + "." + idx
+			}
+			collectLeafPaths(p, item, out)
 		}
 	default:
 		// Leaf scalar (including nil) counts as "present".

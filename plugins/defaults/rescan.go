@@ -108,6 +108,10 @@ func fieldConfigPath(conf any, flatName string) (string, bool) {
 			// Map keys are dynamic and appear in flat field names as-is.
 			pathParts = append(pathParts, seg)
 			cur = cur.Elem()
+		case reflect.Slice, reflect.Array:
+			// Slice indices appear as numeric segments in flat field names.
+			pathParts = append(pathParts, seg)
+			cur = cur.Elem()
 		default:
 			return "", false
 		}

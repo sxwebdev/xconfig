@@ -443,6 +443,44 @@ cfg := &Config{}
 _, err := xconfig.Custom(cfg, &myPlugin{})
 ```
 
+## Applying Defaults Programmatically
+
+Use `xconfig.ApplyDefaults` when data arrives through something other than
+`xconfig.Load` — for example, a slice decoded directly with `yaml.Unmarshal`.
+It walks the value and applies every `default:"..."` struct tag it finds,
+leaving non-zero fields untouched.
+
+```go
+type Group struct {
+    IsEnabled bool   `yaml:"is_enabled" default:"true"`
+    Name      string `yaml:"name"`
+    Port      int    `yaml:"port" default:"8080"`
+}
+
+var file struct {
+    Groups []Group `yaml:"groups"`
+}
+if err := yaml.Unmarshal(data, &file); err != nil {
+    return err
+}
+
+// Fills IsEnabled=true / Port=8080 for elements where YAML omitted them.
+if err := xconfig.ApplyDefaults(&file.Groups); err != nil {
+    return err
+}
+```
+
+`ApplyDefaults` accepts a pointer to a struct, a slice of structs (`*[]T`), or
+a slice of struct pointers (`*[]*T`). It also works through `xconfig.Load` /
+`xconfig.Custom` automatically — `default` tags inside `[]Struct` fields are
+applied the same way they are for nested structs and maps.
+
+**Note on `bool` and other scalars.** Go's `yaml.Unmarshal` cannot distinguish
+a field that was explicitly set to its zero value (e.g. `is_enabled: false`)
+from a field that was simply absent — both end up as `false`. When that
+distinction matters, declare the field as a pointer type (`*bool`) so the
+absent case is represented by `nil`.
+
 ## Supported Types
 
 - All basic Go types: `string`, `bool`, `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64`

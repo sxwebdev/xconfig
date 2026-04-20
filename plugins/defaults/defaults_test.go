@@ -75,3 +75,51 @@ func TestDefaultTag(t *testing.T) {
 
 	testutil.Equal(t, expect, value)
 }
+
+type sliceItem struct {
+	Enabled bool   `default:"true"`
+	Name    string `default:"anon"`
+	Port    int    `default:"8080"`
+}
+
+type fSliceDefaults struct {
+	Items    []sliceItem
+	PtrItems []*sliceItem
+}
+
+func TestDefaultTagInSliceOfStructs(t *testing.T) {
+	value := fSliceDefaults{
+		Items: []sliceItem{
+			{Name: "first"},
+			{Port: 9090},
+			{Enabled: true, Name: "explicit", Port: 1234},
+		},
+		PtrItems: []*sliceItem{
+			{Name: "ptr-first"},
+			nil,
+		},
+	}
+
+	conf, err := xconfig.Custom(&value, defaults.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := conf.Parse(); err != nil {
+		t.Fatal(err)
+	}
+
+	expect := fSliceDefaults{
+		Items: []sliceItem{
+			{Enabled: true, Name: "first", Port: 8080},
+			{Enabled: true, Name: "anon", Port: 9090},
+			{Enabled: true, Name: "explicit", Port: 1234},
+		},
+		PtrItems: []*sliceItem{
+			{Enabled: true, Name: "ptr-first", Port: 8080},
+			nil,
+		},
+	}
+
+	testutil.Equal(t, expect, value)
+}

@@ -4,12 +4,15 @@ package xconfig
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync"
 	"time"
 
 	"github.com/sxwebdev/xconfig/flat"
 	"github.com/sxwebdev/xconfig/plugins"
 )
+
+const defaultTag = "default"
 
 var ErrUsage = plugins.ErrUsage
 
@@ -170,6 +173,90 @@ func (c *config) StopRefresh() {
 		c.refreshCancel()
 		c.refreshWg.Wait()
 	}
+}
+
+// ApplyDefaults applies `default:` struct tags to v. Non-zero fields are left
+// intact, so existing values (including those loaded from a YAML/JSON file via
+// an external unmarshaler) are preserved.
+//
+// v must be a non-nil pointer to one of:
+//   - a struct;
+//   - a slice of structs ([]T);
+//   - a slice of pointers to structs ([]*T).
+//
+// Primitive slices ([]string, []int, …) are left untouched by this helper —
+// defaults on such fields are applied by the value of the field itself, not
+// per element.
+//
+// Note: for scalar fields (including bool) Go cannot distinguish "value was
+// explicitly set to the zero value" from "value was not set". If that
+// distinction matters, use a pointer type (e.g. *bool) for the field.
+func ApplyDefaults(v any) error {
+	if v == nil {
+		return errors.New("xconfig: ApplyDefaults requires a non-nil value")
+	}
+
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+		return errors.New("xconfig: ApplyDefaults requires a non-nil pointer")
+	}
+
+	elem := rv.Elem()
+	switch elem.Kind() {
+	case reflect.Struct:
+		fields, err := flat.View(v)
+		if err != nil {
+			return err
+		}
+		return applyDefaultsToFields(fields)
+
+	case reflect.Slice:
+		elemType := elem.Type().Elem()
+		derefType := elemType
+		if derefType.Kind() == reflect.Ptr {
+			derefType = derefType.Elem()
+		}
+		if derefType.Kind() != reflect.Struct {
+			return nil
+		}
+
+		for i := 0; i < elem.Len(); i++ {
+			item := elem.Index(i)
+			switch item.Kind() {
+			case reflect.Ptr:
+				if item.IsNil() {
+					continue
+				}
+				if err := ApplyDefaults(item.Interface()); err != nil {
+					return err
+				}
+			default:
+				if err := ApplyDefaults(item.Addr().Interface()); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+
+	default:
+		return errors.New("xconfig: ApplyDefaults requires a pointer to struct or slice of structs")
+	}
+}
+
+func applyDefaultsToFields(fields flat.Fields) error {
+	for _, f := range fields {
+		value, ok := f.Tag(defaultTag)
+		if !ok {
+			continue
+		}
+		if !f.IsZero() {
+			continue
+		}
+		if err := f.Set(value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GetUnknownFields returns all unknown fields found in configuration files.

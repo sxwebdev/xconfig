@@ -4,6 +4,7 @@ package flat
 import (
 	"errors"
 	"reflect"
+	"strconv"
 )
 
 // ErrUnexpectedType is returned when flatten sees an unsupported type.
@@ -133,30 +134,79 @@ func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflec
 					fields = append(fields, fs...)
 				}
 			}
+		case reflect.Slice:
+			// Handle slices whose elements are structs (or pointers to structs).
+			// Primitive-element slices are still emitted as a single Field so
+			// `default:"a,b,c"` on the slice itself continues to work via
+			// field.Set (see field.setSlice).
+			sliceElemType := fv.Type().Elem()
+			elemType := sliceElemType
+			if elemType.Kind() == reflect.Ptr {
+				elemType = elemType.Elem()
+			}
+			if elemType.Kind() != reflect.Struct {
+				fields = append(fields, newScalarField(prefix, ft, fv, parentTags))
+				continue
+			}
+
+			if fv.IsNil() || fv.Len() == 0 {
+				continue
+			}
+
+			slicePrefix := prefix
+			if slicePrefix == "" {
+				slicePrefix = ft.Name
+			} else {
+				slicePrefix = slicePrefix + "." + ft.Name
+			}
+
+			for i := 0; i < fv.Len(); i++ {
+				elemVal := fv.Index(i)
+				if elemVal.Kind() == reflect.Ptr {
+					if elemVal.IsNil() {
+						continue
+					}
+					elemVal = elemVal.Elem()
+				}
+
+				// Slice elements are directly addressable; mutations via the
+				// returned Field values persist in place, so no sync callback is
+				// needed (unlike map values).
+				indexPrefix := slicePrefix + "." + strconv.Itoa(i)
+				fs, err := walkStructWithParentTags(indexPrefix, elemVal, ft.Tag)
+				if err != nil {
+					return nil, err
+				}
+				fields = append(fields, fs...)
+			}
 		default:
-			fieldName := ft.Name
-
-			// unless it is override
-			if name, ok := ft.Tag.Lookup("xconfig"); ok && name != "" {
-				fieldName = name
-			}
-
-			if prefix != "" {
-				fieldName = prefix + "." + fieldName
-			}
-
-			fields = append(fields, &field{
-				name:      fieldName,
-				meta:      make(map[string]string, 5),
-				tag:       ft.Tag,
-				parentTag: parentTags,
-				field:     fv,
-				fieldType: ft,
-			})
+			fields = append(fields, newScalarField(prefix, ft, fv, parentTags))
 		}
 	}
 
 	return fields, nil
+}
+
+func newScalarField(prefix string, ft reflect.StructField, fv reflect.Value, parentTags reflect.StructTag) Field {
+	fieldName := ft.Name
+
+	// unless it is override
+	if name, ok := ft.Tag.Lookup("xconfig"); ok && name != "" {
+		fieldName = name
+	}
+
+	if prefix != "" {
+		fieldName = prefix + "." + fieldName
+	}
+
+	return &field{
+		name:      fieldName,
+		meta:      make(map[string]string, 5),
+		tag:       ft.Tag,
+		parentTag: parentTags,
+		field:     fv,
+		fieldType: ft,
+	}
 }
 
 func unwrap(s any) (reflect.Value, error) {
