@@ -155,6 +155,96 @@ cfg := &Config{}
 _, err := xconfig.Load(cfg, xconfig.WithEnvPrefix("MYAPP"))
 ```
 
+### Slices and Maps from Environment Variables
+
+The env plugin can populate slices of structs and maps directly from environment
+variables — including nil/empty containers. Slice elements are addressed by
+their numeric index; map entries by their key.
+
+#### Slice of struct
+
+```go
+type Item struct {
+    Key1 string
+    Key2 string
+}
+
+type Config struct {
+    Items []Item
+}
+
+// ITEMS_0_KEY_1=a, ITEMS_0_KEY_2=b, ITEMS_1_KEY_1=c
+//   → Items: [{Key1: "a", Key2: "b"}, {Key1: "c"}]
+```
+
+The slice grows automatically to fit the largest index found in the
+environment. `[]*Item` (pointer elements) is also supported — empty slots are
+allocated as `&Item{}`.
+
+#### Map of primitive
+
+```go
+type Config struct {
+    Tags     map[string]string
+    Counts   map[string]int
+    Timeouts map[string]time.Duration
+}
+
+// TAGS_FOO=v1, TAGS_BAR=v2  → Tags:     {FOO: "v1", BAR: "v2"}
+// COUNTS_A=10, COUNTS_B=42  → Counts:   {A: 10, B: 42}
+// TIMEOUTS_FAST=5s          → Timeouts: {FAST: 5*time.Second}
+```
+
+The suffix after the map's env prefix becomes the map key verbatim — case is
+preserved. Pre-populated entries are kept; matching env vars override them.
+
+#### Map of struct
+
+```go
+type Server struct {
+    Host string
+    Port int
+}
+
+type Config struct {
+    Servers map[string]Server
+}
+
+// SERVERS_PRIMARY_HOST=10.0.0.1, SERVERS_PRIMARY_PORT=5432, SERVERS_BACKUP_HOST=10.0.0.2
+//   → Servers: {
+//       PRIMARY: {Host: "10.0.0.1", Port: 5432},
+//       BACKUP:  {Host: "10.0.0.2"},
+//     }
+```
+
+The plugin discovers map keys by matching the suffix of each env var against
+the inner struct's field names (longest match wins). `map[string]*Server` is
+supported the same way — entries are allocated as `&Server{}`.
+
+#### `env` tag inside a slice/map element
+
+When a field inside a slice element or map value carries its own `env:"..."`
+tag, it acts as a **per-segment override** — the surrounding slice index or
+map key is preserved so different elements don't collide:
+
+```go
+type Item struct {
+    Key1 string
+    Port int `env:"P"`
+}
+
+type Config struct {
+    Items []Item
+}
+
+// ITEMS_0_KEY_1=a, ITEMS_0_P=1000, ITEMS_1_P=2000
+//   → Items: [{Key1: "a", Port: 1000}, {Port: 2000}]
+```
+
+At the top level the `env:"..."` tag still anchors the full env name (only the
+global `WithEnvPrefix` is prepended) — so `Database.Host env:"DB_HOST"`
+continues to read from `DB_HOST`, not `DATABASE_DB_HOST`.
+
 ### Custom Defaults with SetDefaults
 
 Implement the `SetDefaults()` method to programmatically set default values:

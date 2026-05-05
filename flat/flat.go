@@ -77,48 +77,47 @@ func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflec
 			}
 			fields = append(fields, fs...)
 		case reflect.Map:
-			// Handle maps with struct values
 			if fv.IsNil() {
 				continue
 			}
 
 			mapElemType := fv.Type().Elem()
-			if mapElemType.Kind() == reflect.Struct {
-				mapPrefix := prefix
-				if mapPrefix == "" {
-					mapPrefix = ft.Name
-				} else {
-					mapPrefix = mapPrefix + "." + ft.Name
-				}
+			elemKind := mapElemType.Kind()
+			isPtrToStruct := elemKind == reflect.Ptr && mapElemType.Elem().Kind() == reflect.Struct
+			isStruct := elemKind == reflect.Struct
 
-				// Collect all keys first to avoid issues with modifying map during iteration
-				keys := make([]reflect.Value, 0)
-				iter := fv.MapRange()
-				for iter.Next() {
-					keys = append(keys, iter.Key())
-				}
+			mapPrefix := prefix
+			if mapPrefix == "" {
+				mapPrefix = ft.Name
+			} else {
+				mapPrefix = mapPrefix + "." + ft.Name
+			}
 
-				// Process each key
-				for _, key := range keys {
-					val := fv.MapIndex(key)
+			// Collect all keys first to avoid issues with modifying map during iteration.
+			keys := make([]reflect.Value, 0)
+			iter := fv.MapRange()
+			for iter.Next() {
+				keys = append(keys, iter.Key())
+			}
 
-					// Create a prefix with the map key
-					keyPrefix := mapPrefix + "." + key.String()
+			for _, key := range keys {
+				val := fv.MapIndex(key)
+				keyPrefix := mapPrefix + "." + key.String()
 
-					// Create an addressable copy of the map value
+				switch {
+				case isStruct:
+					// Map with struct values: walk into the value as a struct.
 					addressableVal := reflect.New(mapElemType).Elem()
 					addressableVal.Set(val)
 
-					// Walk the struct value - this will create fields pointing to addressableVal
 					fs, err := walkStructWithParentTags(keyPrefix, addressableVal, ft.Tag)
 					if err != nil {
 						return nil, err
 					}
 
-					// Set mapSync callback for all fields to sync back to the map
-					mapValue := fv            // capture map
-					mapKey := key             // capture key
-					syncVal := addressableVal // capture addressable value
+					mapValue := fv
+					mapKey := key
+					syncVal := addressableVal
 					for _, fld := range fs {
 						if f, ok := fld.(*field); ok {
 							prev := f.mapSync
@@ -132,6 +131,50 @@ func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflec
 					}
 
 					fields = append(fields, fs...)
+
+				case isPtrToStruct:
+					// Map with *struct values: dereference and walk.
+					if val.IsNil() {
+						continue
+					}
+					addressableVal := reflect.New(mapElemType.Elem())
+					addressableVal.Elem().Set(val.Elem())
+
+					fs, err := walkStructWithParentTags(keyPrefix, addressableVal.Elem(), ft.Tag)
+					if err != nil {
+						return nil, err
+					}
+
+					mapValue := fv
+					mapKey := key
+					syncVal := addressableVal
+					for _, fld := range fs {
+						if f, ok := fld.(*field); ok {
+							prev := f.mapSync
+							f.mapSync = func() {
+								if prev != nil {
+									prev()
+								}
+								mapValue.SetMapIndex(mapKey, syncVal)
+							}
+						}
+					}
+
+					fields = append(fields, fs...)
+
+				default:
+					// Map with primitive (scalar) values: emit one Field per entry.
+					addressableVal := reflect.New(mapElemType).Elem()
+					addressableVal.Set(val)
+
+					f := newMapEntryField(keyPrefix, ft, addressableVal, parentTags)
+					mapValue := fv
+					mapKey := key
+					syncVal := addressableVal
+					f.mapSync = func() {
+						mapValue.SetMapIndex(mapKey, syncVal)
+					}
+					fields = append(fields, f)
 				}
 			}
 		case reflect.Slice:
@@ -185,6 +228,22 @@ func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflec
 	}
 
 	return fields, nil
+}
+
+// newMapEntryField builds a Field representing a single entry of a map with
+// scalar (non-struct) value type. The full path (e.g. "Tags.foo") is used as
+// the field name so EnvName() formats it as "TAGS_FOO" via SplitNameByWords.
+// Tags from the parent map field (e.g. `env:"TAGS"`) are exposed through
+// ParentTag() so the env plugin can build a custom prefix.
+func newMapEntryField(name string, ft reflect.StructField, fv reflect.Value, _ reflect.StructTag) *field {
+	return &field{
+		name:      name,
+		meta:      make(map[string]string, 5),
+		tag:       reflect.StructTag(""),
+		parentTag: ft.Tag,
+		field:     fv,
+		fieldType: ft,
+	}
 }
 
 func newScalarField(prefix string, ft reflect.StructField, fv reflect.Value, parentTags reflect.StructTag) Field {
