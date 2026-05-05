@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/hashicorp/vault-client-go v0.4.3
-	github.com/sxwebdev/xconfig v0.4.0
+	github.com/sxwebdev/xconfig v0.4.1
 )
 
 require (
