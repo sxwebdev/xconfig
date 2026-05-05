@@ -11,26 +11,26 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Decoder парсит .env и раскладывает значения в произвольную Go-структуру.
+// Decoder parses .env and places values into an arbitrary Go struct.
 type Decoder struct{}
 
-// New создаёт новый Decoder.
+// New creates a new Decoder.
 func New() *Decoder { return &Decoder{} }
 
-// Format возвращает формат декодера.
+// Format returns the decoder format.
 func (d *Decoder) Format() string {
 	return "env"
 }
 
-// Unmarshal разбирает []byte (формат .env) и заполняет v – указатель на struct.
+// Unmarshal parses []byte (.env format) and fills v – a pointer to a struct.
 func (d *Decoder) Unmarshal(data []byte, v any) error {
-	// 1) Распарсить .env → map[string]string
+	// 1) Parse .env → map[string]string
 	flatMap, err := godotenv.UnmarshalBytes(data)
 	if err != nil {
 		return err
 	}
 
-	// 2) Проверяем, что v – непустой указатель на struct
+	// 2) Verify that v is a non-nil pointer to a struct
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("xconfigdotenv: Unmarshal: v must be a non-nil pointer to a struct, got %T", v)
@@ -40,7 +40,7 @@ func (d *Decoder) Unmarshal(data []byte, v any) error {
 		return fmt.Errorf("xconfigdotenv: Unmarshal: v must point to a struct, got pointer to %s", elem.Kind())
 	}
 
-	// 3) Для каждого ключа из .env разбираем строку в нужное поле
+	// 3) For each key from .env, parse the string into the target field
 	for rawKey, rawVal := range flatMap {
 		parts := strings.Split(rawKey, "_")
 		if len(parts) == 0 {
@@ -54,40 +54,40 @@ func (d *Decoder) Unmarshal(data []byte, v any) error {
 	return nil
 }
 
-// assignValue пытается положить rawVal (строку) в поле v (reflect.Value of a struct)
+// assignValue tries to place rawVal (string) into field v (reflect.Value of a struct)
 func assignValue(v reflect.Value, parts []string, rawVal string) error {
 	typ := v.Type()
 
-	// Перебираем все префиксы от полного к минимальному
+	// Iterate over all prefixes from longest to shortest
 	for prefixLen := len(parts); prefixLen >= 1; prefixLen-- {
 		prefixJoined := strings.Join(parts[:prefixLen], "_")
 		normalizedPrefix := normalize(prefixJoined)
 
 		for i := 0; i < typ.NumField(); i++ {
 			field := typ.Field(i)
-			// normalize имени поля и имени его типа
+			// normalize the field name and its type name
 			fieldNameNorm := normalize(field.Name)
 			fieldTypeNameNorm := normalize(field.Type.Name())
 
-			// если ни имя поля, ни имя его типа не совпадают с normalizedPrefix, пропускаем
+			// if neither the field name nor its type name matches normalizedPrefix, skip it
 			envTagNorm := normalize(field.Tag.Get("env"))
 			if fieldNameNorm != normalizedPrefix && fieldTypeNameNorm != normalizedPrefix && envTagNorm != normalizedPrefix {
 				continue
 			}
 
-			// Нашли подходящее поле - получаем его через unsafe для работы с приватными полями
+			// Found a matching field - obtain it via unsafe to handle private fields
 			fieldVal := getFieldValue(v, i)
-			leftover := parts[prefixLen:] // сегменты «после» текущего префикса
+			leftover := parts[prefixLen:] // segments "after" the current prefix
 
-			// 1) Если leftover пустой, это «конечное» поле: базовый тип или указатель на базовый
+			// 1) If leftover is empty, this is a "leaf" field: a basic type or a pointer to a basic type
 			if len(leftover) == 0 {
 				return setBasicValue(fieldVal, rawVal)
 			}
 
-			// 2) Иначе нужно «спуститься» или положить в контейнер
+			// 2) Otherwise descend further or place into a container
 			switch fieldVal.Kind() {
-			case reflect.Ptr:
-				// Указатель: если nil – создаём новый; затем ожидаем struct и рекурсивно спускаемся
+			case reflect.Pointer:
+				// Pointer: if nil – create a new one; then expect a struct and recurse into it
 				if fieldVal.IsNil() {
 					newPtr := reflect.New(fieldVal.Type().Elem())
 					if err := setWithReflect(fieldVal, newPtr); err != nil {
@@ -101,15 +101,15 @@ func assignValue(v reflect.Value, parts []string, rawVal string) error {
 				return fmt.Errorf("cannot descend into pointer field %q (kind %s), leftover %v", field.Name, elem.Kind(), leftover)
 
 			case reflect.Struct:
-				// Вложенная структура – рекурсивно спускаемся
+				// Nested struct – recurse into it
 				return assignValue(fieldVal, leftover, rawVal)
 
 			case reflect.Map:
-				// Map: leftover объединяем, получаем ключ; rawVal – значение
+				// Map: join leftover to form the key; rawVal is the value
 				if len(leftover) == 0 {
 					return fmt.Errorf("map field %q but no key given (leftover is empty)", field.Name)
 				}
-				if fieldVal.IsNil() { // инициализируем, если нужно
+				if fieldVal.IsNil() { // initialize if needed
 					newMap := reflect.MakeMap(fieldVal.Type())
 					if err := setWithReflect(fieldVal, newMap); err != nil {
 						return err
@@ -119,25 +119,25 @@ func assignValue(v reflect.Value, parts []string, rawVal string) error {
 				return setMapValue(fieldVal, mapKey, rawVal)
 
 			case reflect.Slice:
-				// Срез: leftover[0] – индекс (число), leftover[1:] – вложенность внутри элемента (если есть)
+				// Slice: leftover[0] is the index (number), leftover[1:] is nesting inside the element (if any)
 				idxStr := leftover[0]
 				ix, err := strconv.Atoi(idxStr)
 				if err != nil {
 					return fmt.Errorf("cannot parse slice index %q for field %q", idxStr, field.Name)
 				}
-				// Если срез nil – инициализируем пустой
+				// If the slice is nil – initialize an empty one
 				if fieldVal.IsNil() {
 					newSlice := reflect.MakeSlice(fieldVal.Type(), 0, 0)
 					if err := setWithReflect(fieldVal, newSlice); err != nil {
 						return err
 					}
 				}
-				// Расширяем срез если нужно
+				// Grow the slice if needed
 				curLen := fieldVal.Len()
 				if ix >= curLen {
 					newLen := ix + 1
 					newSlice := reflect.MakeSlice(fieldVal.Type(), newLen, newLen)
-					// Копируем элементы в новый срез
+					// Copy elements into the new slice
 					for j := 0; j < curLen; j++ {
 						elem := fieldVal.Index(j)
 						target := newSlice.Index(j)
@@ -147,12 +147,12 @@ func assignValue(v reflect.Value, parts []string, rawVal string) error {
 						return err
 					}
 				}
-				// Достаём элемент
+				// Get the element
 				elemVal := fieldVal.Index(ix)
-				// Если после индекса есть вложенность
+				// If there is nesting after the index
 				if len(leftover) > 1 {
 					switch elemVal.Kind() {
-					case reflect.Ptr:
+					case reflect.Pointer:
 						if elemVal.IsNil() {
 							newPtr := reflect.New(elemVal.Type().Elem())
 							if err := setWithReflect(elemVal, newPtr); err != nil {
@@ -166,30 +166,30 @@ func assignValue(v reflect.Value, parts []string, rawVal string) error {
 						return fmt.Errorf("cannot descend into slice element kind %s for field %q", elemVal.Kind(), field.Name)
 					}
 				}
-				// Иначе – просто базовое присваивание в элемент
+				// Otherwise – just assign the basic value to the element
 				return setBasicValue(elemVal, rawVal)
 
 			default:
-				// Не контейнер, но leftover есть – некорректное вложение
+				// Not a container, but leftover is non-empty – invalid nesting
 				return fmt.Errorf("cannot descend into field %q (kind %s), leftover %v", field.Name, fieldVal.Kind(), leftover)
 			}
 		}
 	}
 
-	// Ни один префикс не нашёлся – просто игнорируем этот ключ
+	// No prefix matched – just ignore this key
 	return nil
 }
 
-// getFieldValue получает значение поля по индексу с поддержкой приватных полей через unsafe
+// getFieldValue returns the field value by index, supporting private fields via unsafe
 func getFieldValue(structVal reflect.Value, fieldIndex int) reflect.Value {
 	field := structVal.Field(fieldIndex)
 
-	// Если поле экспортируемое, возвращаем как есть
+	// If the field is exported, return it as-is
 	if field.CanSet() {
 		return field
 	}
 
-	// Для приватных полей используем unsafe
+	// For private fields, use unsafe
 	if structVal.CanAddr() {
 		structType := structVal.Type()
 		fieldType := structType.Field(fieldIndex)
@@ -200,9 +200,9 @@ func getFieldValue(structVal reflect.Value, fieldIndex int) reflect.Value {
 	return field
 }
 
-// setBasicValue конвертирует строку rawVal в базовый тип fieldVal.Type()
+// setBasicValue converts the rawVal string into the basic type fieldVal.Type()
 func setBasicValue(fieldVal reflect.Value, rawVal string) error {
-	// Специальный случай: time.Duration
+	// Special case: time.Duration
 	if fieldVal.Type() == reflect.TypeOf(time.Duration(0)) {
 		dur, err := time.ParseDuration(rawVal)
 		if err != nil {
@@ -248,8 +248,8 @@ func setBasicValue(fieldVal reflect.Value, rawVal string) error {
 			return fmt.Errorf("cannot parse %q as complex: %w", rawVal, err)
 		}
 		cv = reflect.ValueOf(c).Convert(ft)
-	case reflect.Ptr:
-		// указатель: если nil – создаём, потом рекурсивно записываем внутрь
+	case reflect.Pointer:
+		// pointer: if nil – create it, then recursively write inside
 		if fieldVal.IsNil() {
 			newPtr := reflect.New(ft.Elem())
 			if err := setWithReflect(fieldVal, newPtr); err != nil {
@@ -264,15 +264,15 @@ func setBasicValue(fieldVal reflect.Value, rawVal string) error {
 	return setWithReflect(fieldVal, cv)
 }
 
-// setWithReflect записывает cv в fieldVal, поддерживая приватные поля через unsafe
+// setWithReflect writes cv into fieldVal, supporting private fields via unsafe
 func setWithReflect(fieldVal, cv reflect.Value) error {
-	// Пытаемся обычный способ для экспортируемых полей
+	// Try the normal way for exported fields
 	if fieldVal.CanSet() {
 		fieldVal.Set(cv)
 		return nil
 	}
 
-	// Для приватных полей используем unsafe, если поле адресуемо
+	// For private fields, use unsafe if the field is addressable
 	if fieldVal.CanAddr() {
 		ptr := unsafe.Pointer(fieldVal.UnsafeAddr())
 		realVal := reflect.NewAt(fieldVal.Type(), ptr).Elem()
@@ -283,17 +283,17 @@ func setWithReflect(fieldVal, cv reflect.Value) error {
 	return fmt.Errorf("cannot set field of kind %s (not addressable)", fieldVal.Kind())
 }
 
-// setMapValue кладёт rawVal (строку) в map[string]X
+// setMapValue puts rawVal (string) into map[string]X
 func setMapValue(mapVal reflect.Value, mapKey, rawVal string) error {
 	keyType := mapVal.Type().Key()
 	valType := mapVal.Type().Elem()
 
-	// Поддерживаем только string-ключи
+	// Only string keys are supported
 	if keyType.Kind() != reflect.String {
 		return fmt.Errorf("unsupported map key type %s; only string keys allowed", keyType.Kind())
 	}
 
-	// Конвертируем rawVal к типу valType
+	// Convert rawVal to the valType
 	var cv reflect.Value
 	if valType.Kind() == reflect.Interface && valType.NumMethod() == 0 {
 		cv = reflect.ValueOf(rawVal)
@@ -305,13 +305,13 @@ func setMapValue(mapVal reflect.Value, mapKey, rawVal string) error {
 		cv = tmp
 	}
 
-	// Устанавливаем значение в map
+	// Set the value in the map
 	if mapVal.CanSet() {
 		mapVal.SetMapIndex(reflect.ValueOf(mapKey), cv)
 		return nil
 	}
 
-	// Для приватных map полей
+	// For private map fields
 	if mapVal.CanAddr() {
 		ptr := unsafe.Pointer(mapVal.UnsafeAddr())
 		realMap := reflect.NewAt(mapVal.Type(), ptr).Elem()
@@ -322,7 +322,7 @@ func setMapValue(mapVal reflect.Value, mapKey, rawVal string) error {
 	return fmt.Errorf("cannot set map key %q on unexported field", mapKey)
 }
 
-// normalize удаляет все '_' и переводит строку к нижнему регистру
+// normalize removes all '_' and lowercases the string
 func normalize(s string) string {
 	s = strings.ToLower(s)
 	return strings.ReplaceAll(s, "_", "")

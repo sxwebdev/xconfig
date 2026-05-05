@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/hashicorp/vault-client-go v0.4.3
-	github.com/sxwebdev/xconfig v0.3.2
+	github.com/sxwebdev/xconfig v0.4.0
 )
 
 require (
@@ -14,6 +14,6 @@ require (
 	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 )

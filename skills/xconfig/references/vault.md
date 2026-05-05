@@ -24,7 +24,7 @@
 
 Package `sourcers/xconfigvault` provides a HashiCorp Vault integration for xconfig. It includes:
 
-- **VaultPlugin** — an xconfig plugin (Visitor + Refreshable) that batch-loads secrets from Vault
+- **VaultPlugin** — an xconfig plugin (Walker + Visitor + Refreshable) that batch-loads secrets from Vault
 - **Token renewal** — background goroutine that keeps tokens alive via renew-self or re-login
 - **Auto-retry** — automatic retry with token refresh on 401/403 errors
 - **Metrics callback** — operational events for monitoring and alerting
@@ -92,8 +92,9 @@ All non-token methods support `Relogin()` for automatic token recovery.
 
 ## VaultPlugin
 
-The recommended way to use Vault with xconfig. VaultPlugin implements `plugins.Visitor` and
-`plugins.Refreshable`, providing batch loading and background refresh.
+The recommended way to use Vault with xconfig. VaultPlugin implements `plugins.Walker`,
+`plugins.Visitor`, and `plugins.Refreshable`, providing batch loading, slice/map
+expansion (driven by Vault secret keys), and background refresh.
 
 ### Struct tags
 
@@ -131,9 +132,40 @@ VaultPlugin runs last in the plugin chain and has **maximum priority** over all 
 
 ### How it works
 
-1. **Visit phase**: Collects all fields tagged `vault:"true"` and maps their env name to the field.
-2. **Parse phase**: Calls `Client.GetMap(ctx, secretPath)` once (single HTTP request) and sets all matching fields via `field.Set()`.
-3. **Refresh**: Re-fetches secrets, compares with previous values, sets changed fields, and returns `[]plugins.FieldChange`.
+1. **Walk phase**: Captures the conf reference for later expansion.
+2. **Visit phase**: Collects fields tagged `vault:"true"` from the initial flat view.
+3. **Parse phase**: Calls `Client.GetMap(ctx, secretPath)` once (single HTTP request),
+   then calls `flat.ExpandContainersFromKeys` with the secret keys to grow
+   slice-of-struct and map fields (creating entries for keys like
+   `ITEMS_0_PASSWORD` or `SERVERS_PRIMARY_PASSWORD`), re-flattens, and sets all
+   matching fields via `field.Set()`.
+4. **Refresh**: Re-fetches secrets, re-expands containers (catches new map keys
+   / slice indices added in Vault), compares with previous values, sets changed
+   fields, and returns `[]plugins.FieldChange`.
+
+### Slices and maps from Vault
+
+Just like the env plugin, VaultPlugin populates slice-of-struct and map fields
+based on flat secret keys:
+
+```go
+type Server struct {
+    Host     string
+    Password string `vault:"true"`
+}
+
+type Config struct {
+    Servers []Server                  // ITEMS_0_PASSWORD, ITEMS_1_PASSWORD, ...
+    Tokens  map[string]Server         // TOKENS_PRIMARY_PASSWORD, TOKENS_BACKUP_PASSWORD, ...
+    PtrSrv  []*Server                 // PTR_SRV_0_PASSWORD, ...
+    PtrTok  map[string]*Server
+}
+```
+
+`vault:"true"` tags only the leaves that come from Vault — the surrounding
+container is grown automatically. An `env:"..."` tag on a nested field acts
+as a per-segment override and the surrounding slice index / map key is
+preserved (so different elements don't collide on the same vault key).
 
 ## Token renewal
 

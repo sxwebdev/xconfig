@@ -114,7 +114,7 @@ func (f *field) Set(value string) error {
 		// Never case reflect.Func:
 		// Never case reflect.Chan:
 		// Never case reflect.Interface:
-		// Never case reflect.Ptr:
+		// Never case reflect.Pointer:
 		// Never case reflect.Struct:
 		// Never case reflect.UnsafePointer:
 	}

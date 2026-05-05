@@ -197,7 +197,7 @@ func ApplyDefaults(v any) error {
 	}
 
 	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return errors.New("xconfig: ApplyDefaults requires a non-nil pointer")
 	}
 
@@ -213,7 +213,7 @@ func ApplyDefaults(v any) error {
 	case reflect.Slice:
 		elemType := elem.Type().Elem()
 		derefType := elemType
-		if derefType.Kind() == reflect.Ptr {
+		if derefType.Kind() == reflect.Pointer {
 			derefType = derefType.Elem()
 		}
 		if derefType.Kind() != reflect.Struct {
@@ -223,7 +223,7 @@ func ApplyDefaults(v any) error {
 		for i := 0; i < elem.Len(); i++ {
 			item := elem.Index(i)
 			switch item.Kind() {
-			case reflect.Ptr:
+			case reflect.Pointer:
 				if item.IsNil() {
 					continue
 				}

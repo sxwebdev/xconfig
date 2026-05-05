@@ -51,11 +51,11 @@ func walkAndSetDefaults(rv reflect.Value, visited map[uintptr]struct{}) {
 	}
 
 	switch rv.Kind() {
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		if rv.IsNil() {
 			return
 		}
-		if rv.Kind() == reflect.Ptr {
+		if rv.Kind() == reflect.Pointer {
 			ptr := rv.Pointer()
 			if _, seen := visited[ptr]; seen {
 				return
@@ -96,7 +96,7 @@ func walkAndSetDefaults(rv reflect.Value, visited map[uintptr]struct{}) {
 			// via the map, we can walk it directly; but map values aren't
 			// addressable, so for struct values we must work on a copy and
 			// write back.
-			if val.Kind() == reflect.Ptr {
+			if val.Kind() == reflect.Pointer {
 				walkAndSetDefaults(val, visited)
 				continue
 			}
@@ -136,7 +136,7 @@ func containsStruct(t reflect.Type) bool {
 		switch t.Kind() {
 		case reflect.Struct:
 			return true
-		case reflect.Ptr, reflect.Slice, reflect.Array:
+		case reflect.Pointer, reflect.Slice, reflect.Array:
 			t = t.Elem()
 		case reflect.Map:
 			t = t.Elem()

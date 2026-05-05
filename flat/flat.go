@@ -83,7 +83,7 @@ func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflec
 
 			mapElemType := fv.Type().Elem()
 			elemKind := mapElemType.Kind()
-			isPtrToStruct := elemKind == reflect.Ptr && mapElemType.Elem().Kind() == reflect.Struct
+			isPtrToStruct := elemKind == reflect.Pointer && mapElemType.Elem().Kind() == reflect.Struct
 			isStruct := elemKind == reflect.Struct
 
 			mapPrefix := prefix
@@ -184,7 +184,7 @@ func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflec
 			// field.Set (see field.setSlice).
 			sliceElemType := fv.Type().Elem()
 			elemType := sliceElemType
-			if elemType.Kind() == reflect.Ptr {
+			if elemType.Kind() == reflect.Pointer {
 				elemType = elemType.Elem()
 			}
 			if elemType.Kind() != reflect.Struct {
@@ -205,7 +205,7 @@ func walkStructWithParentTags(prefix string, rs reflect.Value, parentTags reflec
 
 			for i := 0; i < fv.Len(); i++ {
 				elemVal := fv.Index(i)
-				if elemVal.Kind() == reflect.Ptr {
+				if elemVal.Kind() == reflect.Pointer {
 					if elemVal.IsNil() {
 						continue
 					}
@@ -271,7 +271,7 @@ func newScalarField(prefix string, ft reflect.StructField, fv reflect.Value, par
 func unwrap(s any) (reflect.Value, error) {
 	rs := reflect.ValueOf(s)
 
-	if k := rs.Kind(); k != reflect.Ptr {
+	if k := rs.Kind(); k != reflect.Pointer {
 		return rs, ErrUnexpectedType
 	}
 

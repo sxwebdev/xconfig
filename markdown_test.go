@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sxwebdev/xconfig"
+	"github.com/sxwebdev/xconfig/plugins/env"
 )
 
 // dummyConfig is used for testing.
@@ -65,5 +66,85 @@ func TestGenerateMarkdown(t *testing.T) {
 	// Check for secret field.
 	if strings.Contains(output, "strongSecretPassword") {
 		t.Errorf("expected output to NOT contain secret value, got: %s", output)
+	}
+}
+
+// TestGenerateMarkdownSliceOfStruct reproduces the case where a Config has a
+// pre-populated slice of struct: GenerateMarkdown must produce a row per
+// element field with paths like "Nodes.0.GRPCAddr" — without erroring on
+// the slice index in the path. It also verifies that an `env:"..."` tag on
+// a field inside the slice element acts as a per-segment override (the
+// slice index is preserved) — without this, different elements would all
+// collide on the same env name.
+func TestGenerateMarkdownSliceOfStruct(t *testing.T) {
+	type ClusterNodeConfig struct {
+		GRPCAddr string `validate:"required" example:"node-1.example.com:443"`
+		Headers  string `secret:"true"`
+		UseTLS   bool   `env:"USE_TLS"`
+	}
+	type ClusterConfig struct {
+		Nodes []ClusterNodeConfig
+	}
+	type Config struct {
+		Cluster ClusterConfig
+	}
+
+	cfg := &Config{
+		Cluster: ClusterConfig{
+			Nodes: []ClusterNodeConfig{
+				{
+					GRPCAddr: "node-1.example.com:443",
+					UseTLS:   true,
+				},
+				{
+					GRPCAddr: "node-2.example.com:443",
+				},
+			},
+		},
+	}
+
+	output, err := xconfig.GenerateMarkdown(
+		cfg,
+		xconfig.WithEnvPrefix("MYAPP"),
+		xconfig.WithSkipFlags(),
+		xconfig.WithPlugins(env.New("MYAPP")),
+	)
+	if err != nil {
+		t.Fatalf("GenerateMarkdown returned error: %v", err)
+	}
+
+	// Env names for both slice elements must include the prefix and the index.
+	// The `env:"USE_TLS"` tag must NOT collapse to "MYAPP_USE_TLS" — that
+	// would make Nodes[0].UseTLS and Nodes[1].UseTLS share the same env var.
+	expected := []string{
+		"`MYAPP_CLUSTER_NODES_0_GRPC_ADDR`",
+		"`MYAPP_CLUSTER_NODES_0_HEADERS`",
+		"`MYAPP_CLUSTER_NODES_0_USE_TLS`",
+		"`MYAPP_CLUSTER_NODES_1_GRPC_ADDR`",
+		"`MYAPP_CLUSTER_NODES_1_USE_TLS`",
+		"node-1.example.com:443",
+		"node-2.example.com:443",
+	}
+	for _, want := range expected {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected output to contain %q, got:\n%s", want, output)
+		}
+	}
+
+	// The collapsed-name bug used to produce just "MYAPP_USE_TLS" — make
+	// sure that exact (wrong) value isn't anywhere in the output.
+	if strings.Contains(output, "`MYAPP_USE_TLS`") {
+		t.Errorf("env:\"USE_TLS\" inside slice element must not collapse to MYAPP_USE_TLS; got:\n%s", output)
+	}
+
+	// Header (secret:"true") must NOT have its value rendered as default.
+	// Since it's empty in the fixture, the only way to be sure is to check
+	// the row marks it secret — the icon column should contain ✅ on that row.
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "MYAPP_CLUSTER_NODES_0_HEADERS") {
+			if !strings.Contains(line, "✅") {
+				t.Errorf("HEADERS row should be marked secret, got: %s", line)
+			}
+		}
 	}
 }

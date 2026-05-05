@@ -24,8 +24,8 @@ type tokenRenewer struct {
 	metrics     MetricsCallback
 	cfg         *RenewConfig
 
-	mu       sync.RWMutex
-	renewing bool
+	mu        sync.RWMutex
+	renewing  bool
 	expiry    time.Time
 	lease     time.Duration
 	renewable bool
