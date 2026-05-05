@@ -87,6 +87,49 @@ func TestEnvNames(t *testing.T) {
 	}
 }
 
+func TestFlattenPrimitiveMap(t *testing.T) {
+	type cfg struct {
+		Tags map[string]string
+	}
+
+	c := cfg{Tags: map[string]string{"FOO": "v1", "BAR": "v2"}}
+
+	fs, err := flat.View(&c)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotPaths := map[string]string{}
+	gotEnv := map[string]string{}
+	for _, fld := range fs {
+		gotPaths[fld.Name()] = fld.FieldValue().String()
+		gotEnv[fld.Name()] = fld.EnvName()
+	}
+
+	wantPaths := map[string]string{
+		"Tags.FOO": "v1",
+		"Tags.BAR": "v2",
+	}
+	wantEnv := map[string]string{
+		"Tags.FOO": "TAGS_FOO",
+		"Tags.BAR": "TAGS_BAR",
+	}
+	testutil.Equal(t, wantPaths, gotPaths)
+	testutil.Equal(t, wantEnv, gotEnv)
+
+	// Set via Field — verify mapSync writes back.
+	for _, fld := range fs {
+		if fld.Name() == "Tags.FOO" {
+			if err := fld.Set("changed"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if got := c.Tags["FOO"]; got != "changed" {
+		t.Fatalf("expected map sync to write back, got %q", got)
+	}
+}
+
 func TestFlattenTypes(t *testing.T) {
 	values := map[string]string{
 		"String":   "string",

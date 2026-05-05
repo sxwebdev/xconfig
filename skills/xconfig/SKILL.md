@@ -120,7 +120,25 @@ values from external sources (Vault, Consul, etcd, etc.). The `onChange` callbac
 - `IsZero()` — checks if field has zero value
 
 Nested structs are flattened with dot prefixes. Anonymous structs are transparent (no prefix).
-Maps with struct values are supported: each map key becomes a prefix segment.
+Maps are walked by key — `map[string]<struct>`, `map[string]*<struct>`, and primitive
+`map[string]<scalar>` are all supported. Slice elements are walked by numeric index.
+Modifications to map entries are synced back through a `mapSync` callback so `field.Set`
+persists across map-copy semantics.
+
+### Env-driven slice/map population
+
+The env plugin (`plugins/env`) is both a `Walker` and a `Visitor`. In `Parse()` it
+reflectively walks the conf, scans `os.Environ()` for keys matching slice/map prefixes,
+and grows slices / creates map entries before re-flattening and applying values. This
+means env vars can populate even nil/empty containers:
+
+- `[]Struct` / `[]*Struct` — env keys `<PREFIX>_<N>_<FIELD>` grow the slice to `N+1`.
+- `map[string]<scalar>` — env keys `<PREFIX>_<KEY>` create entries with key as-is from env (case preserved).
+- `map[string]<struct>` / `map[string]*<struct>` — keys discovered by longest-suffix match against the inner struct's leaf field env names.
+
+An `env:"..."` tag on a field nested inside a slice element or map value acts as a
+per-segment override (the surrounding index/key is preserved). At the top level the tag
+anchors the full env name, prepended only with the global plugin prefix.
 
 ## Instructions
 
@@ -233,7 +251,36 @@ type Config struct {
 }
 ```
 
-**Example 2: Custom plugin**
+**Example 2: Slices and maps from env vars**
+
+Input: User asks "I want to load `Items []ServerSpec` and `Tags map[string]string` from environment variables"
+
+Output:
+
+```go
+type ServerSpec struct {
+    Host string
+    Port int
+}
+
+type Config struct {
+    Items []ServerSpec
+    Tags  map[string]string
+}
+
+// ITEMS_0_HOST=10.0.0.1, ITEMS_0_PORT=80, ITEMS_1_HOST=10.0.0.2
+// TAGS_REGION=eu-west, TAGS_TIER=prod
+//   → Items: [{Host:"10.0.0.1", Port:80}, {Host:"10.0.0.2"}]
+//     Tags:  {REGION:"eu-west", TIER:"prod"}
+```
+
+For `map[string]ServerSpec` use `<PREFIX>_<KEY>_<FIELD>` (e.g.
+`SERVERS_PRIMARY_HOST=...`). For pointer element types (`[]*T`, `map[string]*T`)
+empty slots are allocated as `&T{}`. Pre-populated containers are kept; matching
+env vars override individual entries. An `env:"..."` tag on a nested field
+overrides only that field's segment — the surrounding index/key is preserved.
+
+**Example 3: Custom plugin**
 
 Input: User asks "create a plugin that loads config from a remote HTTP endpoint"
 

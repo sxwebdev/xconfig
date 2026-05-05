@@ -82,7 +82,11 @@ fields (full paths like `Database.Postgres.Password`). Call `StopRefresh()` for 
 ### `flat.View(s any) (Fields, error)`
 
 Flattens a struct pointer into a slice of `Field` interfaces. Supports nested structs,
-anonymous structs, and maps with struct values.
+anonymous structs, slices of struct (or `*struct`), and maps keyed by string with any
+value type — `map[string]<struct>`, `map[string]*<struct>`, and primitive
+`map[string]<scalar>`. Map entries get a `mapSync` callback so `field.Set` writes back
+through Go's map-copy semantics. Slice elements are addressed by numeric index in the
+flat path (e.g. `Items.0.Host`).
 
 ### `flat.Field` interface
 
@@ -151,7 +155,15 @@ A plugin can implement multiple interfaces (Walker + Visitor, Visitor + Refresha
 
 ### env (`plugins/env`)
 
-- `env.New(prefix string)` — loads from env vars; prefix is prepended with `_`
+- `env.New(prefix string)` — loads from env vars; prefix is prepended with `_`.
+- Implements both `Walker` and `Visitor`. In `Parse()` it scans `os.Environ()`,
+  expands slices of struct (by numeric index) and maps (by key), then re-flattens
+  the conf and applies values. Works for nil/empty containers, pointer element
+  types (`[]*T`, `map[string]*T`), and `map[string]<scalar>`.
+- `env:"..."` on a field inside a slice element or map value acts as a
+  per-segment override — the surrounding index/key is preserved so different
+  elements don't collide. At the top level the tag anchors the full env name
+  (only the global plugin prefix is prepended).
 
 ### flag (`plugins/flag`)
 

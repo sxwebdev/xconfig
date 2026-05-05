@@ -81,6 +81,21 @@ func TestSplitNameByWords(t *testing.T) {
 			input:    "BaseURL.API",
 			expected: []string{"Base", "URL", "API"},
 		},
+		{
+			name:     "lowercase segment after dot is not merged into previous word",
+			input:    "Map.primary",
+			expected: []string{"Map", "primary"},
+		},
+		{
+			name:     "uppercase tail acronym is not merged into lowercase after dot",
+			input:    "BaseURL.api",
+			expected: []string{"Base", "URL", "api"},
+		},
+		{
+			name:     "lowercase key after dot",
+			input:    "Tags.foo",
+			expected: []string{"Tags", "foo"},
+		},
 	}
 
 	for _, tt := range tests {

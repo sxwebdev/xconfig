@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+## v0.4.0
+
+### Added
+
+- `env` plugin can now populate slices of struct and maps directly from
+  environment variables, including nil/empty containers. The plugin walks the
+  conf at parse time, scans `os.Environ()`, grows slices to fit the largest
+  index found, and creates map entries by key. Pointer element types
+  (`[]*T`, `map[string]*T`) are supported — empty slots are allocated as
+  `&T{}`. Examples:
+  - `ITEMS_0_KEY_1=a, ITEMS_1_KEY_2=b` → `Items []struct{Key1, Key2 string}`
+  - `TAGS_FOO=v1, TAGS_BAR=v2` → `Tags map[string]string` (key as-is from env, case preserved)
+  - `SERVERS_PRIMARY_HOST=..., SERVERS_PRIMARY_PORT=...` → `Servers map[string]Server`
+    (map keys discovered by longest-suffix match against the inner struct's leaf field names)
+- `flat.View` now traverses primitive-valued maps (`map[string]string`,
+  `map[string]int`, `map[string]time.Duration`, etc.) and pointer-to-struct
+  maps (`map[string]*T`). Each entry becomes a `Field` with a `mapSync`
+  callback so `field.Set` writes back through Go's map-copy semantics.
+
+### Changed
+
+- An `env:"..."` tag on a field nested inside a slice element or map value
+  now acts as a per-segment override — the surrounding slice index or map key
+  is preserved so different elements no longer collide on the same env var.
+  At the top level the tag continues to anchor the full env name (only the
+  global `WithEnvPrefix` is prepended), so existing `Database.Host env:"DB_HOST"`
+  patterns are unchanged.
+- `env` plugin's `buildEnvName` now keeps middle path segments (slice index,
+  map key) when the parent struct has an `env:` tag. Previously
+  `Items []T env:"ITEMS"` with `T{Key string}` produced `ITEMS_KEY` for every
+  element; it now produces `ITEMS_0_KEY`, `ITEMS_1_KEY`, etc.
+- `internal/utils.SplitNameByWords` no longer merges across dot boundaries.
+  Paths like `Map.primary` are now split as `["Map", "primary"]` (env name
+  `MAP_PRIMARY`) instead of `["Ma", "pprimary"]` (`MA_PPRIMARY`). This fixes
+  env-name generation for map entries with lowercase keys.
+
+## v0.3.4
+
 ### Added
 
 - `xconfig.ApplyDefaults(v any) error` — apply `default:` struct tags to a

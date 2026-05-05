@@ -66,6 +66,30 @@
 //	_, err := xconfig.Load(cfg, xconfig.WithEnvPrefix("MYAPP"))
 //	// Will look for: MYAPP_API_KEY, MYAPP_SECRET
 //
+// The env plugin can also populate slices of structs and maps directly from
+// environment variables — including nil/empty containers. Slices grow
+// automatically to fit the largest index found; map entries take the suffix
+// after the map's env prefix as their key (case preserved).
+//
+//	type Item struct {
+//	    Key1 string
+//	    Key2 string
+//	}
+//
+//	type Config struct {
+//	    Items   []Item                   // ITEMS_0_KEY_1=..., ITEMS_1_KEY_1=...
+//	    Tags    map[string]string        // TAGS_FOO=v1, TAGS_BAR=v2
+//	    Servers map[string]Item          // SERVERS_PRIMARY_KEY_1=..., SERVERS_BACKUP_KEY_2=...
+//	}
+//
+// Pointer element types ([]*T, map[string]*T) are also supported — empty
+// slots are allocated as &T{}.
+//
+// An env tag on a field nested inside a slice element or map value acts as a
+// per-segment override (the surrounding slice index or map key is preserved
+// so different elements don't collide on the same env var). At the top level
+// the env tag still anchors the full env name as before.
+//
 // ## Command-Line Flags
 //
 // Use the "flag" tag to bind fields to command-line flags:
