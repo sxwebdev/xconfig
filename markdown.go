@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/sxwebdev/xconfig/internal/utils"
 )
 
 const cellSeparator = "|"
@@ -67,12 +65,11 @@ func GenerateMarkdown(cfg any, opts ...Option) (string, error) {
 			isSecret = true
 		}
 
-		val, err := utils.LookupString(cfg, f.Name())
-		if err != nil {
-			return "", fmt.Errorf("failed to lookup value for %s: %w", f.Name(), err)
-		}
-
-		if val.CanInterface() && !isSecret {
+		// Use the flat.Field's reflect.Value directly — looking up by f.Name()
+		// would fail for paths inside slices ("Nodes.0.GRPCAddr") because the
+		// lookup helper expects bracket syntax for indices.
+		val := f.FieldValue()
+		if val.IsValid() && val.CanInterface() && !isSecret {
 			defaultValue = fmt.Sprintf("%v", val.Interface())
 		}
 

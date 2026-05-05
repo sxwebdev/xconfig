@@ -310,6 +310,10 @@ The Vault plugin:
 - Automatically renews tokens in the background
 - Retries on 401/403 with token refresh
 - Emits operational events via `MetricsCallback`
+- Populates slice-of-struct and map fields from secret keys the same way the
+  env plugin does — e.g. secret keys `ITEMS_0_PASSWORD`, `SERVERS_PRIMARY_PASSWORD`
+  grow the containers and create entries automatically. Pointer element types
+  (`[]*T`, `map[string]*T`) are supported.
 
 The `vault:"true"` tag marks a field to be sourced from Vault. The `secret:"true"` tag is
 independent — it marks a field as sensitive (for masking in logs/docs).

@@ -122,7 +122,7 @@ func getValidFields(t reflect.Type) map[string]bool {
 	}
 
 	// Dereference pointer
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -182,7 +182,7 @@ func collectStructFields(t reflect.Type, fields map[string]bool) {
 
 		// Get field type and dereference if pointer
 		fieldType := field.Type
-		if fieldType.Kind() == reflect.Ptr {
+		if fieldType.Kind() == reflect.Pointer {
 			fieldType = fieldType.Elem()
 		}
 
@@ -209,7 +209,7 @@ func collectStructFields(t reflect.Type, fields map[string]bool) {
 		// Handle slices of structs
 		if fieldType.Kind() == reflect.Slice {
 			elemType := fieldType.Elem()
-			if elemType.Kind() == reflect.Ptr {
+			if elemType.Kind() == reflect.Pointer {
 				elemType = elemType.Elem()
 			}
 			if elemType.Kind() == reflect.Struct {
@@ -231,7 +231,7 @@ func collectStructFields(t reflect.Type, fields map[string]bool) {
 
 			// If map value is a struct, collect its fields too
 			mapValueType := fieldType.Elem()
-			if mapValueType.Kind() == reflect.Ptr {
+			if mapValueType.Kind() == reflect.Pointer {
 				mapValueType = mapValueType.Elem()
 			}
 

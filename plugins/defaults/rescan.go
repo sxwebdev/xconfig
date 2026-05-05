@@ -76,7 +76,7 @@ func (v *rescanVisitor) Parse() error {
 
 func fieldConfigPath(conf any, flatName string) (string, bool) {
 	t := reflect.TypeOf(conf)
-	for t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
@@ -88,7 +88,7 @@ func fieldConfigPath(conf any, flatName string) (string, bool) {
 
 	cur := t
 	for _, seg := range segments {
-		for cur.Kind() == reflect.Ptr {
+		for cur.Kind() == reflect.Pointer {
 			cur = cur.Elem()
 		}
 

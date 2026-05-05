@@ -125,15 +125,24 @@ Maps are walked by key — `map[string]<struct>`, `map[string]*<struct>`, and pr
 Modifications to map entries are synced back through a `mapSync` callback so `field.Set`
 persists across map-copy semantics.
 
-### Env-driven slice/map population
+### Container expansion from external keys
 
-The env plugin (`plugins/env`) is both a `Walker` and a `Visitor`. In `Parse()` it
-reflectively walks the conf, scans `os.Environ()` for keys matching slice/map prefixes,
-and grows slices / creates map entries before re-flattening and applying values. This
-means env vars can populate even nil/empty containers:
+The env plugin (`plugins/env`) and the Vault sourcer (`sourcers/xconfigvault`) both
+populate slice-of-struct and map fields based on flat UPPER_SNAKE_CASE keys (env-var
+names or Vault secret keys). The shared logic lives in
+`flat.ExpandContainersFromKeys(conf, globalPrefix, keys) (map[string]string, error)`:
+it mutates conf, growing containers, and returns the flat-path → env-name mapping for
+the caller to apply values after re-flattening.
 
-- `[]Struct` / `[]*Struct` — env keys `<PREFIX>_<N>_<FIELD>` grow the slice to `N+1`.
-- `map[string]<scalar>` — env keys `<PREFIX>_<KEY>` create entries with key as-is from env (case preserved).
+Both plugins are `Walker` + `Visitor`. In `Parse()` they fetch their key source
+(`os.Environ()` for env, `client.GetMap` for vault), call
+`ExpandContainersFromKeys`, re-flatten with `flat.View`, then apply values to the
+relevant fields (all leaves for env; only `vault:"true"`-tagged leaves for Vault).
+
+Supported patterns:
+
+- `[]Struct` / `[]*Struct` — keys `<PREFIX>_<N>_<FIELD>` grow the slice to `N+1`.
+- `map[string]<scalar>` — keys `<PREFIX>_<KEY>` create entries with key verbatim (case preserved).
 - `map[string]<struct>` / `map[string]*<struct>` — keys discovered by longest-suffix match against the inner struct's leaf field env names.
 
 An `env:"..."` tag on a field nested inside a slice element or map value acts as a

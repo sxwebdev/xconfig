@@ -6,6 +6,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+## v0.4.1
+
+### Added
+
+- `flat.ExpandContainersFromKeys(conf, globalPrefix, keys)` — public helper
+  that grows slice-of-struct and map fields in conf based on a set of
+  UPPER_SNAKE_CASE keys (env var names or Vault secret keys), using the same
+  conventions as the env plugin. Returns the flat-path → env-name mapping
+  for callers to apply values after re-flattening.
+- `flat.MakeEnvName(prefix, name)` — exported helper for building env-style
+  names with an optional global prefix.
+- Vault plugin (`sourcers/xconfigvault`) now populates slice-of-struct and
+  map fields directly from Vault secret keys, mirroring the env plugin.
+  Secret keys like `ITEMS_0_PASSWORD`, `SERVERS_PRIMARY_PASSWORD` grow the
+  containers and create entries automatically. Pointer element types
+  (`[]*T`, `map[string]*T`) and `env:"..."` per-segment overrides on inner
+  fields work the same way they do for the env plugin.
+- `xconfigvault.WithEnvPrefix(prefix)` plugin option for `client.Plugin(ctx, ...)`
+  — pins the env-style prefix used when expanding slice/map containers from
+  Vault secret keys (e.g. `WithEnvPrefix("MYAPP")` makes the plugin
+  expand on `MYAPP_ITEMS_0_*`). When not set the plugin auto-detects
+  the prefix from the env plugin's already-stamped metadata at Visit time;
+  pass this option only when the conf has no top-level scalar fields visible
+  at Visit time and auto-detection cannot recover the prefix.
+
+### Changed
+
+- Vault plugin (`sourcers/xconfigvault.VaultPlugin`) now also implements
+  `plugins.Walker`. The conf reference is captured during `Walk`, secrets
+  are fetched in `Parse`/`Refresh`, and containers are expanded based on the
+  fetched secret keys before fields are applied. Existing leaf-tag
+  (`vault:"true"`) usage is unchanged.
+- Env plugin's `Visit` now uses the same context-aware naming logic as
+  `Parse` — fields with an explicit `env:"..."` tag inside a slice element
+  or map value get the surrounding index/key in their env name (e.g.
+  `MYAPP_NODES_0_USE_TLS` instead of `MYAPP_USE_TLS`). This affects
+  metadata stamped on `flat.Field.Meta()["env"]` that callers like
+  `GenerateMarkdown` read to render env-var names.
+- The env plugin's expansion logic moved to the `flat` package so the Vault
+  plugin (and future sourcers) can reuse it. Env plugin behaviour is
+  unchanged.
+
+### Fixed
+
+- `xconfig.GenerateMarkdown` no longer fails with `unable to find the key`
+  when a Config has slice-of-struct fields. The lookup-by-path used the
+  bracket-syntax helper (`Nodes[0].GRPCAddr`) but flat paths contain dotted
+  indices (`Nodes.0.GRPCAddr`). Markdown now reads the value via
+  `flat.Field.FieldValue()` directly.
+- An `env:"..."` tag on a field inside a slice/map element is no longer
+  collapsed to the absolute name in metadata stamped at `Visit` time —
+  previously `Nodes[i].UseTLS env:"USE_TLS"` produced
+  `MYAPP_USE_TLS` (same name for every element); now it produces
+  `MYAPP_NODES_<i>_USE_TLS` so each element has a distinct env var.
+
 ## v0.4.0
 
 ### Added
