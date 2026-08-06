@@ -220,26 +220,43 @@ metrics := xconfigvault.MetricsFunc(func(e xconfigvault.Event) {
 
 ## Background refresh
 
-Use `Config.StartRefresh()` to detect secret rotation in Vault:
+Use `Config.StartRefresh()` to detect secret rotation in Vault and publish a new snapshot:
 
 ```go
-xc.StartRefresh(ctx, 1*time.Minute, func(changes []plugins.FieldChange) {
-    for _, c := range changes {
-        slog.Info("config changed",
-            "field", c.FieldName,  // "Database.Postgres.Password"
-            "old", c.OldValue,
-            "new", c.NewValue,
-        )
-        if c.FieldName == "Database.Postgres.Password" {
-            reconnectDB(c.NewValue)
+results, err := xc.StartRefresh(ctx, time.Minute)
+if err != nil {
+    return err
+}
+defer xc.StopRefresh()
+go func() {
+    for result := range results {
+        if result.Err != nil {
+            slog.Error("config refresh failed", "error", result.Err)
+        }
+        for _, warning := range result.Warnings {
+            slog.Warn("config refresh warning", "warning", warning)
+        }
+        if !result.Published {
+            continue
+        }
+        latest, err := xconfig.Snapshot[Config](xc)
+        if err != nil {
+            continue
+        }
+        active.Store(&latest)
+        for _, change := range result.Changes {
+            slog.Info("config field changed", "field", change.FieldName)
         }
     }
-})
-defer xc.StopRefresh()
+}()
 ```
 
-The refresh invalidates the cache, fetches fresh secrets, and updates only changed fields.
-`FieldChange.FieldName` is the full flat field path (e.g., `Database.Postgres.Password`).
+The refresh invalidates the cache, fetches fresh secrets, and publishes a new owned snapshot.
+An invalid individual Vault value remains last-known-good and produces a redacted typed
+warning; valid sibling secrets are still published. `FieldChange` exposes the full field
+path but never secret values. Vault keys that are absent preserve values from earlier
+sources. A key that is present with an empty value is applied deliberately, allowing secret
+revocation. Warnings use a generic redacted reason while preserving `errors.Is` identity.
 
 ## Secret path format
 

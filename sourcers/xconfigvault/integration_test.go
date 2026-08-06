@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/sxwebdev/xconfig"
-	"github.com/sxwebdev/xconfig/plugins"
 	"github.com/sxwebdev/xconfig/sourcers/xconfigvault"
 )
 
@@ -297,38 +296,42 @@ func TestSecretRotation(t *testing.T) {
 	vaultPut(t, "secret", "test/config", map[string]string{"PASSWORD": "new-pass"})
 
 	// Use StartRefresh to detect the change.
-	var mu sync.Mutex
-	var gotChanges []plugins.FieldChange
-
-	xc.StartRefresh(t.Context(), 500*time.Millisecond, func(changes []plugins.FieldChange) {
-		mu.Lock()
-		gotChanges = append(gotChanges, changes...)
-		mu.Unlock()
-	})
+	results, err := xc.StartRefresh(t.Context(), 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("start refresh: %v", err)
+	}
 	defer xc.StopRefresh()
 
-	// Wait for refresh to pick up the change.
-	time.Sleep(2 * time.Second)
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if cfg.Password != "new-pass" {
-		t.Errorf("Password after rotation = %q, want 'new-pass'", cfg.Password)
+	var result xconfig.RefreshResult
+	select {
+	case result = <-results:
+		if result.Err != nil {
+			t.Fatalf("refresh: %v", result.Err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for secret refresh")
 	}
-	if len(gotChanges) == 0 {
+
+	latest, err := xconfig.Snapshot[Config](xc)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if latest.Password != "new-pass" {
+		t.Errorf("Password after rotation = %q, want 'new-pass'", latest.Password)
+	}
+	if len(result.Changes) == 0 {
 		t.Fatal("expected at least one FieldChange, got none")
 	}
 
 	found := false
-	for _, c := range gotChanges {
-		if c.FieldName == "Password" && c.OldValue == "old-pass" && c.NewValue == "new-pass" {
+	for _, c := range result.Changes {
+		if c.FieldName == "Password" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected FieldChange for Password old-pass -> new-pass, got %+v", gotChanges)
+		t.Errorf("expected FieldChange for Password, got %+v", result.Changes)
 	}
 }
 
@@ -499,14 +502,10 @@ func TestFullIntegration(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	var changeLog []plugins.FieldChange
-	var changeMu sync.Mutex
-
-	xc.StartRefresh(ctx, 500*time.Millisecond, func(changes []plugins.FieldChange) {
-		changeMu.Lock()
-		changeLog = append(changeLog, changes...)
-		changeMu.Unlock()
-	})
+	results, err := xc.StartRefresh(ctx, 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("start refresh: %v", err)
+	}
 	defer xc.StopRefresh()
 
 	// Rotate a secret.
@@ -515,23 +514,32 @@ func TestFullIntegration(t *testing.T) {
 		"API_KEY":     "initial-key",
 	})
 
-	time.Sleep(2 * time.Second)
-
-	// Verify the config was updated.
-	if cfg.DBPassword != "rotated-pass" {
-		t.Errorf("DBPassword after rotation = %q, want 'rotated-pass'", cfg.DBPassword)
+	var result xconfig.RefreshResult
+	select {
+	case result = <-results:
+		if result.Err != nil {
+			t.Fatalf("refresh: %v", result.Err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for secret refresh")
 	}
-	if cfg.APIKey != "initial-key" {
-		t.Errorf("APIKey should not have changed, got %q", cfg.APIKey)
+
+	// Verify the published snapshot was updated.
+	latest, err := xconfig.Snapshot[AppConfig](xc)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if latest.DBPassword != "rotated-pass" {
+		t.Errorf("DBPassword after rotation = %q, want 'rotated-pass'", latest.DBPassword)
+	}
+	if latest.APIKey != "initial-key" {
+		t.Errorf("APIKey should not have changed, got %q", latest.APIKey)
 	}
 
-	changeMu.Lock()
-	defer changeMu.Unlock()
-
-	if len(changeLog) == 0 {
-		t.Error("expected changes to be reported via onChange callback")
+	if len(result.Changes) == 0 {
+		t.Error("expected changes to be reported")
 	}
-	for _, c := range changeLog {
-		t.Logf("change: %s %q -> %q", c.FieldName, c.OldValue, c.NewValue)
+	for _, c := range result.Changes {
+		t.Logf("change: %s", c.FieldName)
 	}
 }

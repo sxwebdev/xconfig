@@ -8,11 +8,9 @@ import (
 
 // SecretChangeEvent is emitted when a secret value changes.
 type SecretChangeEvent struct {
-	Path     string
-	Key      string
-	OldValue string
-	NewValue string
-	Time     time.Time
+	Path string
+	Key  string
+	Time time.Time
 }
 
 // WatchOptions configures secret watching.
@@ -173,11 +171,9 @@ func (w *secretWatcher) checkForChanges(ctx context.Context, values map[string]s
 			_, key, _ := parsePath(path)
 
 			event := SecretChangeEvent{
-				Path:     path,
-				Key:      key,
-				OldValue: oldValue,
-				NewValue: newValue,
-				Time:     time.Now(),
+				Path: path,
+				Key:  key,
+				Time: time.Now(),
 			}
 
 			// Update stored value

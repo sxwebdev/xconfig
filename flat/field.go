@@ -75,16 +75,24 @@ func (f *field) IsZero() bool {
 var textUnmarshalerType = reflect.TypeOf(new(encoding.TextUnmarshaler)).Elem()
 
 func (f *field) Set(value string) error {
+	_, err := f.SetChanged(value)
+	return err
+}
+
+// SetChanged sets value and reports whether the field's semantic value changed.
+func (f *field) SetChanged(value string) (bool, error) {
 	t := f.field.Type()
 
 	if t.Implements(textUnmarshalerType) {
-		err := f.setUnmarshale([]byte(value))
-		if err == nil && f.mapSync != nil {
+		changed, err := f.setUnmarshale([]byte(value))
+		if err == nil && changed && f.mapSync != nil {
 			f.mapSync()
 		}
-		return err
+		return changed, err
 	}
 
+	before := reflect.New(t).Elem()
+	before.Set(f.field)
 	var err error
 	switch f.field.Kind() {
 	case reflect.String:
@@ -119,11 +127,12 @@ func (f *field) Set(value string) error {
 		// Never case reflect.UnsafePointer:
 	}
 
-	if err == nil && f.mapSync != nil {
+	changed := err == nil && !equalIgnoringFuncs(before, f.field)
+	if changed && f.mapSync != nil {
 		f.mapSync()
 	}
 
-	return err
+	return changed, err
 }
 
 // FieldValue is a field in a struct.
@@ -136,24 +145,106 @@ func (f *field) FieldType() reflect.StructField {
 	return f.fieldType
 }
 
-func (f *field) setUnmarshale(value []byte) error {
-	if f.field.IsNil() {
-		f.field.Set(reflect.New(f.field.Type().Elem()))
+func (f *field) setUnmarshale(value []byte) (bool, error) {
+	if f.field.Kind() != reflect.Pointer {
+		// A non-pointer type implements TextUnmarshaler on a value receiver, which
+		// only ever sees a copy: the parsed value can never reach the field. Report
+		// it instead of silently zeroing the field.
+		return false, fmt.Errorf("field %s: cannot set %s from text: UnmarshalText must be declared on a pointer receiver", f.name, f.field.Type())
 	}
 
-	ut := f.field.MethodByName("UnmarshalText")
+	candidate := reflect.New(f.field.Type().Elem())
+	if !f.field.IsNil() {
+		// Stage on a copy of the current value, not on a zero one: UnmarshalText
+		// keeps the fields it does not assign, and a failure leaves the live
+		// value untouched.
+		candidate.Elem().Set(f.field.Elem())
+	}
+	if err := callUnmarshalText(candidate, value); err != nil {
+		return false, err
+	}
+	if f.field.IsNil() {
+		f.field.Set(candidate)
+		return true, nil
+	}
+	changed := !equalIgnoringFuncs(f.field.Elem(), candidate.Elem())
+	if changed {
+		f.field.Elem().Set(candidate.Elem())
+	}
+	return changed, nil
+}
 
-	err := ut.Call([]reflect.Value{reflect.ValueOf(value)})[0]
+// equalIgnoringFuncs reports whether a and b hold the same value, treating every
+// func as equal to every other func. Nothing can set a func from a string, so a
+// func is never part of a field's value, while reflect.DeepEqual reports any two
+// non-nil funcs as unequal - which would make a field carrying one look changed
+// on every single Set, and republish it on every refresh tick forever. It also
+// reads unexported fields, which reflect.Value.Interface rejects.
+func equalIgnoringFuncs(a, b reflect.Value) bool {
+	if a.Type() != b.Type() {
+		return false
+	}
 
-	if err.IsNil() {
+	switch a.Kind() {
+	case reflect.Func:
+		return true
+	case reflect.Pointer:
+		if a.Pointer() == b.Pointer() {
+			return true
+		}
+		if a.IsNil() || b.IsNil() {
+			return false
+		}
+		return equalIgnoringFuncs(a.Elem(), b.Elem())
+	case reflect.Interface:
+		if a.IsNil() || b.IsNil() {
+			return a.IsNil() == b.IsNil()
+		}
+		return equalIgnoringFuncs(a.Elem(), b.Elem())
+	case reflect.Struct:
+		for i := range a.NumField() {
+			if !equalIgnoringFuncs(a.Field(i), b.Field(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Slice:
+		if a.IsNil() != b.IsNil() || a.Len() != b.Len() {
+			return false
+		}
+		fallthrough
+	case reflect.Array:
+		for i := range a.Len() {
+			if !equalIgnoringFuncs(a.Index(i), b.Index(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Map:
+		if a.IsNil() != b.IsNil() || a.Len() != b.Len() {
+			return false
+		}
+		for _, key := range a.MapKeys() {
+			bv := b.MapIndex(key)
+			if !bv.IsValid() || !equalIgnoringFuncs(a.MapIndex(key), bv) {
+				return false
+			}
+		}
+		return true
+	default:
+		return a.Equal(b)
+	}
+}
+
+func callUnmarshalText(target reflect.Value, value []byte) error {
+	result := target.MethodByName("UnmarshalText").Call([]reflect.Value{reflect.ValueOf(value)})[0]
+	if result.IsNil() {
 		return nil
 	}
-
-	er, ok := err.Interface().(error)
+	er, ok := result.Interface().(error)
 	if !ok {
-		return fmt.Errorf("unmarshal text: %v", err)
+		return fmt.Errorf("unmarshal text: %v", result)
 	}
-
 	return er
 }
 
@@ -174,26 +265,38 @@ func (f *field) setString(value string) error {
 
 func (f *field) setBool(value string) error {
 	v, err := strconv.ParseBool(value)
+	if err != nil {
+		return err
+	}
 	f.field.SetBool(v)
-	return err
+	return nil
 }
 
 func (f *field) setInt(value string) error {
 	v, err := strconv.ParseInt(value, 0, 64)
+	if err != nil {
+		return err
+	}
 	f.field.SetInt(v)
-	return err
+	return nil
 }
 
 func (f *field) setUint(value string) error {
 	v, err := strconv.ParseUint(value, 0, 64)
+	if err != nil {
+		return err
+	}
 	f.field.SetUint(v)
-	return err
+	return nil
 }
 
 func (f *field) setFloat(value string) error {
 	v, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return err
+	}
 	f.field.SetFloat(v)
-	return err
+	return nil
 }
 
 func (f *field) setSlice(value string) error {
@@ -207,15 +310,16 @@ func (f *field) setSlice(value string) error {
 	values := strings.Split(value, ",")
 	valuesLen := len(values)
 
-	f.field.Set(reflect.MakeSlice(t, valuesLen, valuesLen))
+	candidate := reflect.MakeSlice(t, valuesLen, valuesLen)
 
 	for i, value := range values {
-		err := setSliceElem(f.field.Index(i), strings.TrimSpace(value))
+		err := setSliceElem(candidate.Index(i), strings.TrimSpace(value))
 		if err != nil {
 			return err
 		}
 	}
 
+	f.field.Set(candidate)
 	return nil
 }
 
@@ -258,18 +362,27 @@ func setSliceElemDuration(f reflect.Value, value string) error {
 
 func setSliceElemInt(f reflect.Value, value string) error {
 	v, err := strconv.ParseInt(value, 0, 64)
+	if err != nil {
+		return err
+	}
 	f.SetInt(v)
-	return err
+	return nil
 }
 
 func setSliceElemUint(f reflect.Value, value string) error {
 	v, err := strconv.ParseUint(value, 0, 64)
+	if err != nil {
+		return err
+	}
 	f.SetUint(v)
-	return err
+	return nil
 }
 
 func setSliceElemFloat(f reflect.Value, value string) error {
 	v, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return err
+	}
 	f.SetFloat(v)
-	return err
+	return nil
 }

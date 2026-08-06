@@ -6,6 +6,76 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+## v0.5.0
+
+### Added
+
+- `Config.Snapshot(dst)` and `xconfig.Snapshot[T]` return an owned copy of the
+  latest successfully published configuration.
+- `Config.Refresh(ctx)` provides a synchronous refresh result with publication,
+  warning, error, and notification-drop metadata.
+- `StartRefresh` returns a bounded, non-blocking channel of `RefreshResult` and
+  validates its interval.
+- `ErrNoRefreshablePlugins` is returned by `StartRefresh` when no registered
+  plugin supports refresh, instead of starting a loop that can never emit.
+
+### Changed
+
+- **Breaking:** refreshable plugins now mutate private staging state. Refresh
+  never mutates the struct passed to `Load` or `Custom`; applications publish
+  snapshots to readers, typically through `atomic.Pointer`.
+- **Breaking:** `plugins.Refreshable.Refresh` receives the cycle's private target
+  and returns `plugins.RefreshOutcome`, allowing non-fatal per-field warnings.
+- **Breaking:** `Config.Options()` and `Config.Fields()` were removed so callers
+  cannot obtain mutable references into staging state.
+- **Breaking:** `FieldChange` and Vault `SecretChangeEvent` no longer expose old
+  or new values. Notifications contain metadata only, preventing secret values
+  from leaking through logs or metrics.
+
+### Fixed
+
+- Concurrent refresh and snapshot reads no longer race, including configs with
+  maps, slices, pointers, and dynamically expanded Vault fields.
+- Initial parsing no longer deep-clones values back into the caller's struct;
+  slice headers, maps, and pre-wired `encoding.TextUnmarshaler` pointers retain
+  their identity.
+- Config-data pointers are deep-cloned regardless of their package. Runtime-safe
+  dependencies can opt into shared identity with `xconfig_shared:"true"`.
+- Snapshot reads no longer wait for plugin network I/O and are safe from plugin
+  callbacks during refresh.
+- A failed refresh keeps the last published snapshot intact and discards its
+  cycle-local field notifications, preventing phantom publications on retry.
+- Starting a refresh loop twice no longer leaks the previous goroutine, and
+  `StopRefresh` is idempotent.
+- Vault refresh reports invalid fields as redacted typed warnings, retains their
+  last-known-good values, and still publishes other valid secret changes.
+- Snapshot cloning supports unexported state reached through maps and interfaces
+  without panicking; clone failures discard private staging state.
+- Pointer-based `encoding.TextUnmarshaler` fields are updated transactionally:
+  identity is preserved, rejected values cannot partially mutate the field, and
+  successful rotations are reported reliably.
+- Background notification coalescing retains only bounded warning and error
+  summaries, and graceful shutdown no longer emits `context.Canceled` events.
+- Missing Vault keys preserve fallback values, while present empty values are
+  applied so an operator can explicitly revoke a secret. Both parsing and refresh
+  iterate Vault keys in sorted order, so a rejected value fails reproducibly.
+- Snapshots own mutable config-data pointers such as `*big.Int` and
+  `*bytes.Buffer`, including map keys. Immutable value types keep their identity
+  automatically: interned and sentinel pointers inside a struct without exported
+  fields (`time.Time`, `netip.Addr`, `unique.Handle`, ...) are shared rather than
+  cloned, so `==` and `Is4()` keep working without an `xconfig_shared` tag.
+- The configuration is captured when `Parse` succeeds for non-refreshable configs
+  too, so `Snapshot` no longer depends on when it was first called.
+- Refresh publishes container expansion that adds new map keys or slice elements
+  even when every new value is zero, and no longer republishes an unchanged
+  configuration on every tick when it carries `func` fields or cloned map keys.
+- `Usage()` no longer waits behind plugin network I/O, and a plugin calling back
+  into `Usage()` or `Snapshot` from `Parse()` no longer deadlocks.
+- A pointer `encoding.TextUnmarshaler` field keeps the state `UnmarshalText` does
+  not assign, instead of being overwritten by a zero value. A value-receiver
+  `UnmarshalText`, which can never apply a value, now reports an error instead of
+  silently zeroing the field.
+
 ## v0.4.1
 
 ### Added

@@ -53,17 +53,24 @@ func RegisterTag(name string) {
 type FieldChange struct {
 	// FieldName is the full flat field path, e.g. "Database.Postgres.Password".
 	FieldName string
-	// OldValue is the previous value.
-	OldValue string
-	// NewValue is the updated value.
-	NewValue string
+}
+
+// RefreshOutcome contains the non-fatal result of refreshing one plugin.
+// Warnings describe individual values that were rejected while other valid
+// values were applied. Warning errors must never contain secret values.
+type RefreshOutcome struct {
+	Changes  []FieldChange
+	Warnings []error
 }
 
 // Refreshable is implemented by plugins that support background config refresh.
 // Examples: vault, consul, etcd, AWS SSM sourcers.
 type Refreshable interface {
 	Plugin
-	// Refresh re-fetches values from the external source, updates changed fields,
-	// and returns a list of changes. Called periodically by Config.StartRefresh.
-	Refresh(ctx context.Context) ([]FieldChange, error)
+	// Refresh re-fetches values and applies them to target. target is a private
+	// working copy owned by xconfig and is discarded when Refresh returns an
+	// error. Changes must describe mutations made during this call. Plugins
+	// should compare against target instead of advancing a private baseline,
+	// because failed cycles are discarded without a commit callback.
+	Refresh(ctx context.Context, target any) (RefreshOutcome, error)
 }

@@ -13,6 +13,18 @@ import (
 // and flags (in that order) and optionally file loaders based on the provided
 // Files map and parses them right away.
 func Load(conf any, opts ...Option) (Config, error) {
+	return load(conf, opts...)
+}
+
+func load(conf any, opts ...Option) (*config, error) {
+	return loadConfig(conf, true, opts...)
+}
+
+func loadForDocumentation(conf any, opts ...Option) (*config, error) {
+	return loadConfig(conf, false, opts...)
+}
+
+func loadConfig(conf any, publishSnapshot bool, opts ...Option) (*config, error) {
 	o := &options{
 		loader: &loader.Loader{},
 	}
@@ -58,16 +70,16 @@ func Load(conf any, opts ...Option) (Config, error) {
 		ps = append(ps, o.plugins...)
 	}
 
-	c, err := Custom(conf, ps...)
+	c, err := newConfig(conf, ps...)
 	if err != nil {
 		return c, err
 	}
 
-	c.setOptions(o)
+	c.options = o
 
-	if err := c.Parse(); err != nil {
+	if err := c.parse(publishSnapshot); err != nil {
 		return c, err
 	}
 
-	return c, err
+	return c, nil
 }

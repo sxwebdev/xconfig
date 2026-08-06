@@ -24,6 +24,7 @@ type Field interface {
 
 	String() string
 	Set(value string) error
+	SetChanged(value string) (bool, error)
 	IsZero() bool
 
 	FieldValue() reflect.Value

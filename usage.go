@@ -19,7 +19,14 @@ func init() {
 
 // Usage prints out the current config fields, flags, env vars
 // and any other source and setting.
+//
+// Usage only formats registered field metadata, so it uses its own lock instead
+// of the one refresh holds across plugin I/O: it never waits for a refresh
+// round-trip and stays callable from a plugin hook.
 func (c *config) Usage() (string, error) {
+	c.usageMu.Lock()
+	defer c.usageMu.Unlock()
+
 	setUsageMeta(c.fields)
 	headers := getHeaders(c.fields)
 

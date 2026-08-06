@@ -88,9 +88,12 @@ Later sources override earlier ones. This means: vault > flags > env > defaults 
 ### Background refresh
 
 Plugins implementing `plugins.Refreshable` support background config updates. Call
-`Config.StartRefresh(ctx, interval, onChange)` after `Load()` to periodically re-fetch
-values from external sources (Vault, Consul, etcd, etc.). The `onChange` callback receives
-`[]plugins.FieldChange` with full field paths (e.g., `Database.Postgres.Password`).
+`Config.StartRefresh(ctx, interval)` after `Load()` to periodically re-fetch values from
+external sources (Vault, Consul, etcd, etc.). Handle the returned startup error, consume
+refresh results, and publish `xconfig.Snapshot[T]` through an `atomic.Pointer` whenever
+`result.Published` is true. Refresh never
+mutates the struct originally passed to `Load`. Change events contain field paths but never
+old or new values, preventing secrets from leaking through notifications.
 
 ### Struct tags
 
@@ -103,6 +106,7 @@ values from external sources (Vault, Consul, etcd, etc.). The `onChange` callbac
 | `vault`    | xconfigvault | Field sourced from Vault              | `vault:"true"`          |
 | `usage`    | usage        | Help/doc description                  | `usage:"Server port"`   |
 | `xconfig`  | flat         | Override field name in flat structure | `xconfig:"custom_name"` |
+| `xconfig_shared` | core snapshots | Retain identity for a concurrency-safe runtime dependency | `xconfig_shared:"true"` |
 | `validate` | validate     | Validation rules (go-playground)      | `validate:"required"`   |
 | `required` | markdown     | Mark field as required in docs        | `required:"true"`       |
 | `example`  | markdown     | Example value for docs                | `example:"https://..."` |
@@ -221,12 +225,32 @@ defer client.Close()
 var cfg Config
 xc, err := xconfig.Load(&cfg, xconfig.WithPlugins(client.Plugin()))
 
-// Background refresh — detects secret rotation in Vault
-xc.StartRefresh(ctx, 1*time.Minute, func(changes []plugins.FieldChange) {
-    for _, c := range changes {
-        slog.Info("config changed", "field", c.FieldName)
+// Background refresh — detects secret rotation in Vault.
+results, err := xc.StartRefresh(ctx, time.Minute)
+if err != nil {
+    return err
+}
+go func() {
+    for result := range results {
+        if result.Err != nil {
+            slog.Error("config refresh failed", "error", result.Err)
+        }
+        for _, warning := range result.Warnings {
+            slog.Warn("config refresh warning", "warning", warning)
+        }
+        if !result.Published {
+            continue
+        }
+        latest, err := xconfig.Snapshot[Config](xc)
+        if err != nil {
+            continue
+        }
+        active.Store(&latest)
+        for _, change := range result.Changes {
+            slog.Info("config field changed", "field", change.FieldName)
+        }
     }
-})
+}()
 defer xc.StopRefresh()
 ```
 
@@ -340,7 +364,10 @@ func (p *httpPlugin) Parse() error {
 
 - **Plugin order matters.** Later plugins override earlier ones. Vault plugin runs last and has maximum priority. Understand the loading chain before modifying `load.go` to avoid subtle precedence bugs.
 - **Visitor vs Walker.** Use Visitor when you need flat field access with metadata (env, flags, secrets). Use Walker when you need the raw struct (file loading, custom defaults). A plugin can implement both.
-- **Refreshable is generic.** Any plugin can implement `plugins.Refreshable` for background config updates. The `Config.StartRefresh()` loop iterates all Refreshable plugins. This is not vault-specific — future sourcers (consul, etcd, SSM) should implement the same interface.
+- **Refreshable is generic.** Any plugin can implement `plugins.Refreshable`. Its `Refresh(ctx, target)` method receives a private working copy and reports only changes made during that call. Compare against `target` rather than advancing a private baseline: failed cycles are discarded without a commit callback, so the same source change must be detectable again. Fatal errors discard the cycle; warnings allow valid sibling fields to publish. This is not vault-specific.
+- **Snapshots are the runtime API.** Plugins mutate private staging state. Application readers use `Config.Snapshot()` or `xconfig.Snapshot[T]`; never retain plugin fields or expect the original `Load` target to change after refresh.
+- **Shared dependencies are explicit.** Config-data pointers are deep-cloned even when their types come from another package. Use `xconfig_shared:"true"` only for intentionally shared objects that are safe for concurrent use.
+- **Notifications never control progress.** `StartRefresh` uses a bounded latest-state queue. An ignored or slow result consumer cannot stop refresh; async coalescing retains at most 16 warnings and the first/latest errors. Inspect `RefreshResult.Dropped` and always resnapshot after `Published=true`.
 - **Vault tag is separate from secret tag.** `vault:"true"` marks a field to be sourced from Vault. `secret:"true"` marks a field as sensitive (for masking/docs). They are independent — a field can have both, one, or neither.
 - **Vault key derivation.** VaultPlugin uses `f.Meta()["env"]` (set by the env plugin) as the vault key if available, otherwise `f.EnvName()`. This means vault keys should match env var names.
 - **Zero-value semantics.** The defaults plugin only sets fields that are zero-valued. If a file loader sets a field, defaults won't overwrite it. This is intentional — don't change this behavior.
