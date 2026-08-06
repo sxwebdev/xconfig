@@ -2,7 +2,11 @@ package xconfigvault
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -11,6 +15,36 @@ import (
 )
 
 const vaultTag = "vault"
+
+var ErrInvalidSecretValue = errors.New("vault: invalid secret value")
+
+// SecretValueError identifies a field that rejected a Vault value without
+// retaining or exposing the secret itself.
+type SecretValueError struct {
+	FieldName string
+	Key       string
+	reason    string
+	cause     error
+}
+
+type redactedCause struct {
+	message  string
+	original error
+}
+
+func (e *redactedCause) Error() string { return e.message }
+
+func (e *redactedCause) Is(target error) bool { return errors.Is(e.original, target) }
+
+func (e *SecretValueError) Error() string {
+	message := fmt.Sprintf("vault: field %s rejected value from key %s", e.FieldName, e.Key)
+	if e.reason != "" {
+		return message + ": " + e.reason
+	}
+	return message
+}
+
+func (e *SecretValueError) Unwrap() error { return e.cause }
 
 func init() {
 	plugins.RegisterTag(vaultTag)
@@ -52,11 +86,8 @@ type VaultPlugin struct {
 	ctx        context.Context // used by Parse(); set at construction via Plugin(ctx)
 	conf       any
 	envPrefix  string // global env prefix (matches xconfig.WithEnvPrefix); used when expanding slice/map containers
-	fields     flat.Fields
-	keyMap     map[string]flat.Field // ENV_NAME -> field
 
-	mu          sync.RWMutex
-	lastSecrets map[string]string
+	mu sync.Mutex
 }
 
 // Plugin returns a new VaultPlugin for use with xconfig.WithPlugins().
@@ -80,17 +111,21 @@ func (c *Client) Plugin(ctx context.Context, opts ...PluginOption) *VaultPlugin 
 // Walk captures the conf reference so Parse can re-flatten and expand
 // slice/map fields based on Vault secret keys (mirroring the env plugin).
 func (p *VaultPlugin) Walk(conf any) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.conf = conf
 	return nil
 }
 
 // Visit collects fields tagged with vault:"true" from the initial flat view
 // and, when not configured explicitly, auto-detects the env prefix from the
-// env plugin's already-stamped metadata. Parse() rebuilds the keyMap after
-// expansion to pick up newly created entries.
+// env plugin's already-stamped metadata. Parse and Refresh rebuild their field
+// maps after container expansion instead of retaining caller-owned fields.
 func (p *VaultPlugin) Visit(fields flat.Fields) error {
-	p.fields = fields
-	p.keyMap = collectVaultFields(fields, nil)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if p.envPrefix == "" {
 		p.envPrefix = detectEnvPrefix(fields)
 	}
@@ -133,6 +168,9 @@ func detectEnvPrefix(fields flat.Fields) string {
 // to expand slice/map containers (so e.g. SERVERS_PRIMARY_PASSWORD creates
 // Servers["PRIMARY"]), then sets values on every vault-tagged field.
 func (p *VaultPlugin) Parse() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	secrets, err := p.client.GetMap(p.ctx, p.secretPath)
 	if err != nil {
 		return fmt.Errorf("vault: failed to load secrets from %s: %w", p.secretPath, err)
@@ -140,73 +178,69 @@ func (p *VaultPlugin) Parse() error {
 
 	p.client.emitEvent(EventSecretsFetched, nil)
 
-	if err := p.applySecrets(secrets); err != nil {
+	if err := p.applySecretsLocked(secrets); err != nil {
 		return err
 	}
-
-	p.mu.Lock()
-	p.lastSecrets = secrets
-	p.mu.Unlock()
 
 	return nil
 }
 
-// Refresh re-fetches secrets from Vault and updates changed fields.
-// Returns a list of changes with full field paths (e.g. "Database.Postgres.Password").
-// Implements plugins.Refreshable.
-func (p *VaultPlugin) Refresh(ctx context.Context) ([]plugins.FieldChange, error) {
+// Refresh re-fetches secrets from Vault and applies them to xconfig's private
+// target. Invalid individual values remain last-known-good and are returned as
+// redacted warnings while valid sibling values continue to update.
+func (p *VaultPlugin) Refresh(ctx context.Context, target any) (plugins.RefreshOutcome, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.client.InvalidateCache(p.secretPath)
 
 	secrets, err := p.client.GetMap(ctx, p.secretPath)
 	if err != nil {
 		p.client.emitEvent(EventVaultUnreachable, err)
-		return nil, err
+		return plugins.RefreshOutcome{}, err
 	}
 
+	return p.applyRefreshSecrets(target, secrets)
+}
+
+func (p *VaultPlugin) applyRefreshSecrets(target any, secrets map[string]string) (plugins.RefreshOutcome, error) {
 	// Re-expand containers in case new map keys / slice indices appeared in
 	// Vault since the last refresh.
 	keys := mapKeys(secrets)
-	nameMap, err := flat.ExpandContainersFromKeys(p.conf, p.envPrefix, keys)
+	nameMap, err := flat.ExpandContainersFromKeys(target, p.envPrefix, keys)
 	if err != nil {
-		return nil, err
+		return plugins.RefreshOutcome{}, err
 	}
 
-	fields, err := flat.View(p.conf)
+	fields, err := flat.View(target)
 	if err != nil {
-		return nil, err
+		return plugins.RefreshOutcome{}, err
 	}
 	keyMap := collectVaultFields(fields, nameMap)
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	var changes []plugins.FieldChange
-	for key, f := range keyMap {
-		newVal := secrets[key]
-		oldVal := p.lastSecrets[key]
-		if newVal == oldVal {
+	outcome := plugins.RefreshOutcome{}
+	for _, key := range slices.Sorted(maps.Keys(keyMap)) {
+		f := keyMap[key]
+		newVal, ok := secrets[key]
+		if !ok {
 			continue
 		}
-		if err := f.Set(newVal); err != nil {
+		changed, err := f.SetChanged(newVal)
+		if err != nil {
+			outcome.Warnings = append(outcome.Warnings, newSecretValueError(f.Name(), key, err))
 			continue
 		}
-		changes = append(changes, plugins.FieldChange{
-			FieldName: f.Name(),
-			OldValue:  oldVal,
-			NewValue:  newVal,
-		})
+		if changed {
+			outcome.Changes = append(outcome.Changes, plugins.FieldChange{FieldName: f.Name()})
+		}
 	}
 
-	p.lastSecrets = secrets
-	p.fields = fields
-	p.keyMap = keyMap
-	return changes, nil
+	return outcome, nil
 }
 
-// applySecrets expands slice/map containers based on the secret keys, then
-// sets values on every vault-tagged leaf field. Used by both Parse() and
-// (indirectly) Refresh().
-func (p *VaultPlugin) applySecrets(secrets map[string]string) error {
+// applySecretsLocked expands slice/map containers based on the secret keys,
+// then sets values on every vault-tagged leaf field. Callers must hold p.mu.
+func (p *VaultPlugin) applySecretsLocked(secrets map[string]string) error {
 	keys := mapKeys(secrets)
 	nameMap, err := flat.ExpandContainersFromKeys(p.conf, p.envPrefix, keys)
 	if err != nil {
@@ -217,20 +251,45 @@ func (p *VaultPlugin) applySecrets(secrets map[string]string) error {
 	if err != nil {
 		return err
 	}
-	p.fields = fields
-	p.keyMap = collectVaultFields(fields, nameMap)
+	keyMap := collectVaultFields(fields, nameMap)
 
-	for key, f := range p.keyMap {
+	// Sorted so that a rejected value always aborts on the same key, leaving the
+	// same fields applied, instead of varying with map iteration order.
+	for _, key := range slices.Sorted(maps.Keys(keyMap)) {
 		value, ok := secrets[key]
-		if !ok || value == "" {
+		if !ok {
 			continue
 		}
+		f := keyMap[key]
 		if err := f.Set(value); err != nil {
-			return fmt.Errorf("vault: failed to set field %s from key %s: %w", f.Name(), key, err)
+			return newSecretValueError(f.Name(), key, err)
 		}
 	}
 
 	return nil
+}
+
+// newSecretValueError builds a redacted error for a rejected value. The
+// underlying message may embed the secret, so only reasons known to be
+// value-free are reported; the original error stays reachable through
+// errors.Is without its message ever being printed.
+func newSecretValueError(fieldName, key string, err error) error {
+	reason := "invalid value"
+	switch {
+	case errors.Is(err, strconv.ErrSyntax):
+		reason = strconv.ErrSyntax.Error()
+	case errors.Is(err, strconv.ErrRange):
+		reason = strconv.ErrRange.Error()
+	}
+	return &SecretValueError{
+		FieldName: fieldName,
+		Key:       key,
+		reason:    reason,
+		cause: errors.Join(ErrInvalidSecretValue, &redactedCause{
+			message:  reason,
+			original: err,
+		}),
+	}
 }
 
 // collectVaultFields builds a map ENV_NAME → field for every leaf tagged

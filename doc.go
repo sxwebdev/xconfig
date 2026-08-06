@@ -165,17 +165,35 @@
 //
 // # Background Config Refresh
 //
-// Plugins implementing [plugins.Refreshable] support background updates.
-// Call [Config.StartRefresh] to periodically re-fetch values from external sources:
+// Plugins implementing [plugins.Refreshable] support background updates without
+// mutating the struct originally passed to Load. Publish owned snapshots to readers:
 //
-//	xc.StartRefresh(ctx, 1*time.Minute, func(changes []plugins.FieldChange) {
-//	    for _, c := range changes {
-//	        log.Printf("config changed: %s %q -> %q", c.FieldName, c.OldValue, c.NewValue)
-//	    }
-//	})
+//	results, err := xc.StartRefresh(ctx, time.Minute)
+//	if err != nil {
+//	    return err
+//	}
 //	defer xc.StopRefresh()
+//	go func() {
+//	    for result := range results {
+//	        if result.Err != nil {
+//	            log.Printf("config refresh failed: %v", result.Err)
+//	        }
+//	        for _, warning := range result.Warnings {
+//	            log.Printf("config refresh warning: %v", warning)
+//	        }
+//	        if !result.Published {
+//	            continue
+//	        }
+//	        latest, err := xconfig.Snapshot[Config](xc)
+//	        if err != nil {
+//	            continue
+//	        }
+//	        active.Store(&latest)
+//	    }
+//	}()
 //
-// FieldChange.FieldName contains the full field path (e.g., "Database.Postgres.Password").
+// FieldChange.FieldName contains the full field path. Events intentionally omit old
+// and new values so secret material cannot leak through logs or metrics.
 //
 // # Secret Management
 //
@@ -278,10 +296,12 @@
 //	    return nil
 //	}
 //
-//	// Optional: implement Refreshable for background updates
-//	func (p *myPlugin) Refresh(ctx context.Context) ([]plugins.FieldChange, error) {
-//	    // Re-fetch and return changes
-//	    return nil, nil
+//	// Optional: implement Refreshable for background updates. target is an
+//	// isolated working copy; report changes made during this call.
+//	func (p *myPlugin) Refresh(ctx context.Context, target any) (plugins.RefreshOutcome, error) {
+//	    cfg := target.(*Config)
+//	    // Re-fetch and update cfg.
+//	    return plugins.RefreshOutcome{}, nil
 //	}
 //
 //	// Use your plugin

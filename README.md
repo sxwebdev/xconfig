@@ -320,22 +320,76 @@ independent — it marks a field as sensitive (for masking in logs/docs).
 
 ### Background Config Refresh
 
-Plugins implementing `Refreshable` support real-time config updates without restart:
+Plugins implementing `Refreshable` support runtime updates without mutating the
+configuration struct returned by `Load`. Keep the active configuration in an
+`atomic.Pointer` and replace it with an owned snapshot after every successful refresh:
 
 ```go
-xc.StartRefresh(ctx, 1*time.Minute, func(changes []plugins.FieldChange) {
-    for _, c := range changes {
-        log.Printf("config changed: %s %q -> %q", c.FieldName, c.OldValue, c.NewValue)
-        if c.FieldName == "Database.Password" {
-            reconnectDB(c.NewValue)
+var active atomic.Pointer[Config]
+initial, err := xconfig.Snapshot[Config](xc)
+if err != nil {
+    return err
+}
+active.Store(&initial)
+
+results, err := xc.StartRefresh(ctx, time.Minute)
+if err != nil {
+    return err
+}
+defer xc.StopRefresh()
+
+go func() {
+    for result := range results {
+        if result.Err != nil {
+            log.Printf("config refresh failed: %v", result.Err)
+        }
+        for _, warning := range result.Warnings {
+            log.Printf("config refresh warning: %v", warning)
+        }
+        if !result.Published {
+            continue
+        }
+        latest, err := xconfig.Snapshot[Config](xc)
+        if err != nil {
+            log.Printf("config snapshot failed: %v", err)
+            continue
+        }
+        active.Store(&latest)
+        for _, change := range result.Changes {
+            log.Printf("config field changed: %s", change.FieldName)
         }
     }
-})
-defer xc.StopRefresh()
+}()
 ```
 
 `FieldChange.FieldName` contains the full field path (e.g., `Database.Postgres.Password`).
+Change events intentionally contain no old or new values, preventing secrets from
+leaking into logs and metrics. `Snapshot` owns maps (keys included), slices, and
+config-data pointers such as `*big.Int` or `*bytes.Buffer`; package boundaries do not
+change clone behavior. Because keys are copied too, a key containing pointers is a
+distinct key in the copy. Mark intentionally shared, concurrency-safe runtime
+dependencies such as `*http.Client`, `*os.File`, or `*slog.LevelVar` with
+`xconfig_shared:"true"` to retain their identity.
+Immutable value types keep their identity automatically and need no tag: inside a struct
+without exported fields (`time.Time`, `netip.Addr`, `unique.Handle`, ...) the interned or
+sentinel pointers are shared rather than cloned, so `Is4()` and `==` keep working, while
+such a type's slices and maps are still cloned. The immutable stdlib pointers
+`*time.Location` and `*regexp.Regexp` are shared for the same reason.
+The struct originally passed to `Load` contains the initial configuration and is never
+modified by refresh. The configuration is captured when `Parse` succeeds, so every caller
+sees the same value regardless of when it first calls `Snapshot`.
+
+Refresh notifications use a bounded latest-state queue and never block the refresh loop.
+`RefreshResult.Dropped` reports coalesced notifications; readers should always obtain the
+latest snapshot after a result with `Published=true`. Async coalescing retains at most 16
+warnings plus the first and latest errors, so an ignored channel has bounded memory use.
+
+Services that already own a lifecycle loop (for example MX services) can call
+`result := xc.Refresh(ctx)` directly, handle `result.Err` and `result.Warnings`, then
+publish a new snapshot when `result.Published` is true.
 Any plugin implementing `plugins.Refreshable` participates in the refresh cycle automatically.
+`StartRefresh` reports `ErrNoRefreshablePlugins` when no registered plugin supports refresh,
+so a loop that could never emit anything fails immediately instead of running silently.
 
 ### Secret Management (Legacy)
 
@@ -489,6 +543,7 @@ fmt.Println(usage)
 | `vault`   | Field sourced from HashiCorp Vault    | `vault:"true"`          |
 | `usage`   | Description for documentation/help    | `usage:"Server port"`   |
 | `xconfig` | Override field name in flat structure | `xconfig:"custom_name"` |
+| `xconfig_shared` | Keep a concurrency-safe dependency shared in snapshots | `xconfig_shared:"true"` |
 
 ## Available Plugins
 

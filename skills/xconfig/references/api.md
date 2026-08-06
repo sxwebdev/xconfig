@@ -64,18 +64,36 @@ Only populated when a loader is configured.
 
 ```go
 type Config interface {
-    Parse() error                // Execute all plugins in order
-    Usage() (string, error)      // Generate text usage information
-    Options() *options           // Access configured options
-    Fields() flat.Fields         // Access flattened fields
-    StartRefresh(ctx context.Context, interval time.Duration, onChange func([]plugins.FieldChange))
+    Parse() error
+    Usage() (string, error)
+    Snapshot(dst any) error
+    UnknownFields() map[string][]string
+    Refresh(ctx context.Context) RefreshResult
+    StartRefresh(ctx context.Context, interval time.Duration) (<-chan RefreshResult, error)
     StopRefresh()
+}
+
+type RefreshResult struct {
+    Changes    []plugins.FieldChange
+    Warnings   []error
+    Err        error
+    Published  bool
+    Dropped    uint64
 }
 ```
 
 `StartRefresh` starts a background goroutine that periodically calls `Refresh(ctx)` on all
-plugins implementing `plugins.Refreshable`. The `onChange` callback is invoked with changed
-fields (full paths like `Database.Postgres.Password`). Call `StopRefresh()` for graceful shutdown.
+plugins implementing `plugins.Refreshable`. Its result channel reports refresh errors and
+changed field paths without blocking refresh when the channel is slow or ignored. Call
+`StopRefresh()` for graceful shutdown. It returns `ErrInvalidRefreshInterval` for a
+non-positive interval and `ErrNoRefreshablePlugins` when no plugin supports refresh,
+leaving any running loop unchanged. Runtime readers must use
+`Config.Snapshot(dst)` or `xconfig.Snapshot[T](config)`; refresh never mutates the original target.
+Snapshot deep-clones config data across package boundaries, map keys included. A field tagged
+`xconfig_shared:"true"` keeps its identity and must be safe for concurrent use; interned
+and sentinel pointers inside a struct without exported fields (`time.Time`, `netip.Addr`)
+keep their identity automatically, as do `*time.Location` and `*regexp.Regexp`.
+Async coalescing retains at most 16 warnings and a bounded first/latest error pair.
 
 ## flat package
 
@@ -99,6 +117,7 @@ type Field interface {
     Meta() map[string]string         // Mutable plugin metadata
     String() string                  // Default tag value
     Set(value string) error          // Type-coercing setter
+    SetChanged(value string) (bool, error) // Set and report semantic change
     IsZero() bool                    // Check if zero-valued
     FieldValue() reflect.Value       // Underlying reflect.Value
     FieldType() reflect.StructField  // Underlying reflect.StructField
@@ -128,16 +147,21 @@ type Visitor interface {
 // Refreshable — plugin supports background config refresh
 type Refreshable interface {
     Plugin
-    Refresh(ctx context.Context) ([]FieldChange, error)
+    Refresh(ctx context.Context, target any) (RefreshOutcome, error)
+}
+
+type RefreshOutcome struct {
+    Changes  []FieldChange
+    Warnings []error
 }
 
 // FieldChange describes a config field change detected during refresh
 type FieldChange struct {
     FieldName string // Full path: "Database.Postgres.Password"
-    OldValue  string
-    NewValue  string
 }
 ```
+
+Field values are intentionally excluded because they may contain secrets.
 
 A plugin can implement multiple interfaces (Walker + Visitor, Visitor + Refreshable, etc.).
 
