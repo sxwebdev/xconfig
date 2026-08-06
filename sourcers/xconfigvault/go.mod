@@ -1,6 +1,6 @@
 module github.com/sxwebdev/xconfig/sourcers/xconfigvault
 
-go 1.25.0
+go 1.26
 
 require (
 	github.com/hashicorp/vault-client-go v0.4.3
@@ -14,7 +14,7 @@ require (
 	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 )
 
