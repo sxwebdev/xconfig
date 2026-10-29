@@ -1,0 +1,53 @@
+version: 2
+project_name: xconfig
+dist: .artifacts/release
+
+# A library: the release publishes notes for the module tags, no binaries.
+builds:
+  - skip: true
+
+checksum:
+  disable: true
+
+changelog:
+  use: git
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\(.+\))??!?:.+$'
+      order: 2
+    - title: Refactoring
+      regexp: '^.*?refactor(\(.+\))??!?:.+$'
+      order: 3
+    - title: Documentation
+      regexp: '^.*?docs(\(.+\))??!?:.+$'
+      order: 4
+    - title: Tests
+      regexp: '^.*?test(\(.+\))??!?:.+$'
+      order: 5
+    - title: Dependencies
+      regexp: '(^.*?(build|chore)\(deps\)!?:.+$|^.*?[Bb]ump .+$)'
+      order: 6
+    - title: Build & CI
+      regexp: '^.*?(build|ci)(\(.+\))??!?:.+$'
+      order: 7
+    # Catch-all: a new commit convention must not silently hide release notes.
+    - title: Other changes
+      order: 999
+
+release:
+  github:
+    owner: sxwebdev
+    name: xconfig
+  name_template: "{{ .Tag }}"
+  prerelease: "false"
+  mode: replace
+  footer: |
+
+    **Full changelog**: https://github.com/sxwebdev/xconfig/compare/{{ .PreviousTag }}...{{ .Tag }}

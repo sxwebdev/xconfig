@@ -1,0 +1,96 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable release version matching CHANGELOG.md (for example v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xconfig-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Validate release inputs
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/master
+          go run tools/release.go --version "$RELEASE_VERSION"
+
+  checks:
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      GORELEASER_CURRENT_TAG: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: '**/go.sum'
+      - name: Prepare release notes
+        run: |
+          mkdir -p .artifacts
+          go run tools/release.go --version "$RELEASE_VERSION" --notes .artifacts/release-notes.md
+      - name: Verify release history
+        shell: bash
+        run: |
+          previous_tag="$(
+            git tag --list 'v[0-9]*' --sort=-version:refname |
+              awk -v current="$RELEASE_VERSION" '/^v[01]\.[0-9]+\.[0-9]+$/ && $0 != current { print; exit }'
+          )"
+          if [[ -n "$previous_tag" ]]; then
+            latest_tag="$(printf '%s\n%s\n' "$previous_tag" "$RELEASE_VERSION" | sort -V | tail -n 1)"
+            if [[ "$latest_tag" != "$RELEASE_VERSION" ]]; then
+              echo "A newer release $previous_tag already exists." >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$previous_tag^{commit}" HEAD; then
+              echo "Previous release $previous_tag is not an ancestor of this release." >&2
+              exit 1
+            fi
+            echo "GORELEASER_PREVIOUS_TAG=$previous_tag" >> "$GITHUB_ENV"
+          fi
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.19.0
+          install-only: true
+      - name: Validate the release before tagging
+        run: |
+          goreleaser check
+          goreleaser release --snapshot --clean
+      - name: Publish coordinated module tags
+        run: go run tools/release.go --version "$RELEASE_VERSION" --push-tags
+      - name: Publish GitHub Release
+        run: goreleaser release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-${{ inputs.version }}
+          path: .artifacts/
+          include-hidden-files: true

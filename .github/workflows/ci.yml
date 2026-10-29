@@ -1,0 +1,64 @@
+name: checks
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: '**/go.sum'
+      - run: go test -race -count=1 tools/release.go tools/release_test.go
+      - run: go test -race -count=1 tools/dev.go tools/dev_test.go
+      - run: go run tools/dev.go check
+
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - .
+          - decoders/xconfigdotenv
+          - decoders/xconfigjson
+          - decoders/xconfigyaml
+          - sourcers/xconfigvault
+          - watchers/xconfigfsnotify
+          - tests/integration
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: '**/go.sum'
+      # Submodules require the core of their own unreleased version, which
+      # resolves only through the workspace.
+      - run: go run tools/dev.go workspace
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          working-directory: ${{ matrix.module }}
+
+  release-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: '**/go.sum'
+      - run: go run tools/release.go
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.19.0
+          install-only: true
+      - run: goreleaser check
+      - run: goreleaser release --snapshot --clean
