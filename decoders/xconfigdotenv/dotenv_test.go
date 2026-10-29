@@ -14,48 +14,50 @@ func TestDecoderFormat(t *testing.T) {
 	assert.Equal(t, "env", decoder.Format())
 }
 
+type plainEnv struct {
+	Key        string
+	AnotherKey string
+}
+
 func TestDecoderUnmarshal(t *testing.T) {
 	decoder := xconfigdotenv.New()
 
 	tests := []struct {
 		name     string
 		data     []byte
-		expected map[string]string
-		wantErr  bool
+		expected plainEnv
 	}{
 		{
 			name:     "simple key-value",
 			data:     []byte("KEY=value\nANOTHER_KEY=another_value"),
-			expected: map[string]string{"KEY": "value", "ANOTHER_KEY": "another_value"},
-			wantErr:  false,
+			expected: plainEnv{Key: "value", AnotherKey: "another_value"},
 		},
 		{
 			name:     "empty value",
 			data:     []byte("KEY="),
-			expected: map[string]string{"KEY": ""},
-			wantErr:  false,
+			expected: plainEnv{},
 		},
 		{
 			name:     "quoted value",
 			data:     []byte(`KEY="quoted value"`),
-			expected: map[string]string{"KEY": "quoted value"},
-			wantErr:  false,
+			expected: plainEnv{Key: "quoted value"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var result map[string]string
+			var result plainEnv
 			err := decoder.Unmarshal(tt.data, &result)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
-			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestDecoderUnmarshalRejectsNonStruct(t *testing.T) {
+	var result map[string]string
+	err := xconfigdotenv.New().Unmarshal([]byte("KEY=value"), &result)
+	assert.ErrorContains(t, err, "must point to a struct")
 }
 
 func TestNewDecoder(t *testing.T) {
