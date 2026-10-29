@@ -125,26 +125,6 @@ func (c *secretCache) expired(path string) bool {
 	return time.Now().After(entry.expiresAt)
 }
 
-// getEntry returns the full cache entry for a path.
-func (c *secretCache) getEntry(path string) (*cachedSecret, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	entry, ok := c.entries[path]
-	if !ok {
-		return nil, false
-	}
-
-	// Return a copy to prevent data races
-	return &cachedSecret{
-		value:     entry.value,
-		data:      entry.data,
-		fetchedAt: entry.fetchedAt,
-		expiresAt: entry.expiresAt,
-		version:   entry.version,
-	}, true
-}
-
 // paths returns all cached paths.
 func (c *secretCache) paths() []string {
 	c.mu.RLock()

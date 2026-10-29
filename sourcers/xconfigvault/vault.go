@@ -23,9 +23,8 @@ type Client struct {
 	watcher *secretWatcher
 	renewer *tokenRenewer
 
-	mu          sync.RWMutex
-	renewCancel context.CancelFunc
-	closed      bool
+	mu     sync.RWMutex
+	closed bool
 }
 
 // New creates a new Vault client with the given configuration.
