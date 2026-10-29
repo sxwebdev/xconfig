@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+## v0.6.0
+
+### Added
+
+- `WithWatchFiles` reloads the configuration on refresh when the contents of the
+  loader's files change. A reload runs the whole chain on the value passed to
+  `Load` as it was before parsing, so env, flags, and plugins keep priority over
+  files and removed keys fall back to their defaults. Failed reloads keep the
+  last snapshot and are retried; `Refreshable` plugins still refresh meanwhile.
+- `WithFileWatcher` and the `FileWatcher` interface wake the refresh loop
+  between ticks. The new `watchers/xconfigfsnotify` module implements it with
+  fsnotify, watching directories so atomic saves and Kubernetes ConfigMap
+  symlink swaps are noticed, and batching bursts of events (`WithDelay`).
+- `loader.Loader.ReadFiles` returns a `FileSet` that parses exactly the bytes it
+  read.
+- During every parse with watched files, including each reload,
+  `Loader.PresentFields` and `Loader.GetUnknownFields` report the files being
+  parsed, so plugins passed with `WithPlugins` can check them as without
+  watching. A rejected reload restores the fields of the accepted files, and
+  `Config.UnknownFields` reports the accepted files while a reload runs.
+- `ErrWatchedReparse` is returned by `Parse` on an already parsed configuration
+  with watched files; `Refresh` applies the current files instead.
+
+### Fixed
+
+- A flag plugin visited again no longer panics with "flag redefined".
+- File and reader plugins parsed again apply the same content instead of failing
+  on an exhausted source.
+- `Loader` guards its unknown and present fields, so they can be read while a
+  reload parses.
+
 ## v0.5.0
 
 ### Added

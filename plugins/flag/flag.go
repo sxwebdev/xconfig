@@ -62,6 +62,12 @@ func (v *visitor) Parse() error {
 }
 
 func (v *visitor) Visit(fields flat.Fields) error {
+	// Visit runs again on every config file reload, and a FlagSet panics when
+	// a flag is defined twice, so each visit registers on a fresh set.
+	fs := flag.NewFlagSet(v.fs.Name(), v.fs.ErrorHandling())
+	fs.Usage = v.fs.Usage
+	v.fs = fs
+
 	for _, f := range fields {
 		usage, _ := f.Tag("usage")
 

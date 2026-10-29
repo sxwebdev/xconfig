@@ -26,10 +26,14 @@ var ErrUsage = plugins.ErrUsage
 var ErrInvalidRefreshInterval = errors.New("xconfig: refresh interval must be positive")
 
 // ErrNoRefreshablePlugins is returned when StartRefresh is called on a
-// configuration without any plugin implementing plugins.Refreshable, because
-// such a loop could never report anything. The currently running loop, if any,
-// is left unchanged.
+// configuration without any plugin implementing plugins.Refreshable and
+// without watched config files, because such a loop could never report
+// anything. The currently running loop, if any, is left unchanged.
 var ErrNoRefreshablePlugins = errors.New("xconfig: no plugin supports refresh")
+
+// ErrWatchedReparse is returned by Parse on a configuration loaded with
+// WithWatchFiles once it has been parsed; Refresh applies the current files.
+var ErrWatchedReparse = errors.New("xconfig: a configuration with watched files cannot be parsed again, use Refresh")
 
 // Config is the config manager.
 type Config interface {
@@ -71,6 +75,9 @@ type Config interface {
 	// Refresh synchronously refreshes every plugin implementing
 	// plugins.Refreshable and atomically publishes the resulting snapshot. If a
 	// plugin fails, the last successfully published snapshot remains current.
+	// With WithWatchFiles, a change in the config files reloads the whole
+	// configuration instead; a failed reload is reported in Err while the
+	// refreshable plugins are still refreshed.
 	Refresh(ctx context.Context) RefreshResult
 
 	// StartRefresh starts a background goroutine that periodically calls Refresh.
@@ -78,9 +85,10 @@ type Config interface {
 	// closed when the loop stops. Slow or absent consumers never block refresh;
 	// coalesced events are reported through RefreshResult.Dropped. Starting a
 	// valid new loop replaces the previous one. A non-positive interval or a
-	// configuration without any plugins.Refreshable plugin is rejected with
-	// ErrInvalidRefreshInterval or ErrNoRefreshablePlugins, leaving a running
-	// loop unchanged.
+	// configuration without any plugins.Refreshable plugin or watched files is
+	// rejected with ErrInvalidRefreshInterval or ErrNoRefreshablePlugins,
+	// leaving a running loop unchanged. A FileWatcher set with WithFileWatcher
+	// runs alongside the loop and refreshes between ticks.
 	StartRefresh(ctx context.Context, interval time.Duration) (<-chan RefreshResult, error)
 
 	// StopRefresh stops the background refresh goroutine and waits for it to finish.
@@ -137,6 +145,7 @@ type config struct {
 	current     any
 	parsed      bool
 	refreshable bool
+	watch       *fileWatch // nil unless config files are watched
 
 	refreshMu     sync.Mutex
 	refreshCancel context.CancelFunc
@@ -144,12 +153,25 @@ type config struct {
 }
 
 func (c *config) addPlugin(plug plugins.Plugin) error { //nolint:funcorder
+	if err := bindPlugin(plug, c.target, c.fields); err != nil {
+		return err
+	}
+
+	c.plugins = append(c.plugins, plug)
+	if _, ok := plug.(plugins.Refreshable); ok {
+		c.refreshable = true
+	}
+	return nil
+}
+
+// bindPlugin walks and visits target with plug, so that its Parse writes there.
+func bindPlugin(plug plugins.Plugin, target any, fields flat.Fields) error {
 	var atOnceChecked bool
 
 	// if the plugin is a Walker, we need to call Walk on it.
 	walkerPlugin, ok := plug.(plugins.Walker)
 	if ok {
-		err := walkerPlugin.Walk(c.target)
+		err := walkerPlugin.Walk(target)
 		if err != nil {
 			return err
 		}
@@ -159,7 +181,7 @@ func (c *config) addPlugin(plug plugins.Plugin) error { //nolint:funcorder
 	// if the plugin is a Visitor, we need to call Visit on it.
 	visitorPlugin, ok := plug.(plugins.Visitor)
 	if ok {
-		err := visitorPlugin.Visit(c.fields)
+		err := visitorPlugin.Visit(fields)
 		if err != nil {
 			return err
 		}
@@ -171,10 +193,6 @@ func (c *config) addPlugin(plug plugins.Plugin) error { //nolint:funcorder
 		return errors.New("unsupported plugins. expecting a Walker or Visitor")
 	}
 
-	c.plugins = append(c.plugins, plug)
-	if _, ok := plug.(plugins.Refreshable); ok {
-		c.refreshable = true
-	}
 	return nil
 }
 
@@ -185,6 +203,12 @@ func (c *config) Parse() error {
 func (c *config) parse(publishSnapshot bool) error {
 	c.operationMu.Lock()
 	defer c.operationMu.Unlock()
+
+	// Reloads bind the plugins passed with WithPlugins to their own copies, and
+	// the file plugins of Load hold the files as Load read them.
+	if c.watch != nil && c.parsed {
+		return ErrWatchedReparse
+	}
 
 	for _, p := range c.plugins {
 		err := p.Parse()
@@ -214,7 +238,7 @@ func (c *config) Refresh(ctx context.Context) RefreshResult {
 		result.Err = ErrNotParsed
 		return result
 	}
-	if !c.refreshable {
+	if !c.refreshable && c.watch == nil {
 		return result
 	}
 	current := c.currentSnapshot()
@@ -223,11 +247,35 @@ func (c *config) Refresh(ctx context.Context) RefreshResult {
 		return result
 	}
 
+	if c.watch != nil {
+		reloaded, err := c.reloadFiles(ctx, current, &result)
+		if reloaded {
+			return result
+		}
+		if err != nil {
+			// A broken file must not hold back values such as rotated secrets
+			// that the refreshable plugins still deliver.
+			if c.refreshable {
+				c.refreshPlugins(ctx, current, &result)
+			}
+			result.Err = errors.Join(err, result.Err)
+			return result
+		}
+	}
+	if c.refreshable {
+		c.refreshPlugins(ctx, current, &result)
+	}
+	return result
+}
+
+// refreshPlugins refreshes every plugins.Refreshable plugin on the private
+// staging copy and publishes it when anything changed.
+func (c *config) refreshPlugins(ctx context.Context, current any, result *RefreshResult) {
 	if c.staging == nil {
 		staging, err := cloneConfigPointer(current)
 		if err != nil {
 			result.Err = fmt.Errorf("prepare refresh staging: %w", err)
-			return result
+			return
 		}
 		c.staging = staging
 	}
@@ -243,7 +291,7 @@ func (c *config) Refresh(ctx context.Context) RefreshResult {
 		if err != nil {
 			result.Err = fmt.Errorf("refresh %T: %w", p, err)
 			c.staging = nil
-			return result
+			return
 		}
 		for _, change := range outcome.Changes {
 			changedFields[change.FieldName] = struct{}{}
@@ -253,13 +301,13 @@ func (c *config) Refresh(ctx context.Context) RefreshResult {
 	// Plugins report value changes only, so container expansion that adds
 	// zero-valued map entries or slice elements is detected here instead.
 	if len(changedFields) == 0 && sameConfigData(c.staging, current) {
-		return result
+		return
 	}
-	current, err := cloneConfigPointer(c.staging)
+	published, err := cloneConfigPointer(c.staging)
 	if err != nil {
 		result.Err = fmt.Errorf("publish refreshed configuration: %w", err)
 		c.staging = nil
-		return result
+		return
 	}
 
 	result.Changes = make([]plugins.FieldChange, 0, len(changedFields))
@@ -267,16 +315,15 @@ func (c *config) Refresh(ctx context.Context) RefreshResult {
 		result.Changes = append(result.Changes, plugins.FieldChange{FieldName: fieldName})
 	}
 	sortFieldChanges(result.Changes)
-	c.publish(current)
+	c.publish(published)
 	result.Published = true
-	return result
 }
 
 func (c *config) StartRefresh(ctx context.Context, interval time.Duration) (<-chan RefreshResult, error) {
 	if interval <= 0 {
 		return nil, ErrInvalidRefreshInterval
 	}
-	if !c.refreshable {
+	if !c.refreshable && c.watch == nil {
 		return nil, ErrNoRefreshablePlugins
 	}
 	results := make(chan RefreshResult, 16)
@@ -296,22 +343,37 @@ func (c *config) StartRefresh(ctx context.Context, interval time.Duration) (<-ch
 	go func() {
 		defer close(done)
 		defer close(results)
+		var (
+			wake      <-chan struct{}
+			watchErrs <-chan error
+		)
+		if c.watch != nil && c.watch.watcher != nil {
+			var wait func()
+			wake, watchErrs, wait = c.watch.run(refreshCtx)
+			defer wait()
+		}
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-refreshCtx.Done():
 				return
+			case err := <-watchErrs:
+				// The watcher has stopped; ticks keep checking the files.
+				watchErrs = nil
+				deliverRefreshResult(results, RefreshResult{Err: fmt.Errorf("watch config files: %w", err)})
+				continue
 			case <-ticker.C:
-				result := c.Refresh(refreshCtx)
-				if refreshCtx.Err() != nil {
-					return
-				}
-				if result.Err == nil && !result.Published && len(result.Warnings) == 0 {
-					continue
-				}
-				deliverRefreshResult(results, result)
+			case <-wake:
 			}
+			result := c.Refresh(refreshCtx)
+			if refreshCtx.Err() != nil {
+				return
+			}
+			if result.Err == nil && !result.Published && len(result.Warnings) == 0 {
+				continue
+			}
+			deliverRefreshResult(results, result)
 		}
 	}()
 
@@ -528,6 +590,18 @@ func (c *config) UnknownFields() map[string][]string {
 	if c == nil {
 		return make(map[string][]string)
 	}
+	if c.watch != nil {
+		// The loader reports a reload in progress; report the accepted files.
+		c.dataMu.RLock()
+		defer c.dataMu.RUnlock()
+
+		unknown := make(map[string][]string, len(c.watch.unknown))
+		for path, fields := range c.watch.unknown {
+			unknown[path] = slices.Clone(fields)
+		}
+		return unknown
+	}
+
 	opts := c.options
 	if opts == nil || opts.loader == nil {
 		return make(map[string][]string)

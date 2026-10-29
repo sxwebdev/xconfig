@@ -59,6 +59,8 @@ Only populated when a loader is configured.
 | `WithLoader(loader)`          | Use a custom file loader                    |
 | `WithPlugins(plugins...)`     | Append custom plugins after standard ones   |
 | `WithDisallowUnknownFields()` | Fail if config files contain unknown fields |
+| `WithWatchFiles()`            | Reload the config on refresh when the loader's files change |
+| `WithFileWatcher(w)`          | `WithWatchFiles` plus `w` waking the refresh loop between ticks |
 
 ## Config interface
 
@@ -94,6 +96,32 @@ Snapshot deep-clones config data across package boundaries, map keys included. A
 and sentinel pointers inside a struct without exported fields (`time.Time`, `netip.Addr`)
 keep their identity automatically, as do `*time.Location` and `*regexp.Regexp`.
 Async coalescing retains at most 16 warnings and a bounded first/latest error pair.
+
+With `WithWatchFiles()`, every `Refresh` reads the loader's files and, when their contents
+differ from the ones behind the current snapshot, reloads: the whole `Load` chain runs again
+on a clone of the value passed to `Load` as it was before parsing, refreshable plugins are
+refreshed in their place in the chain, other `WithPlugins` plugins are walked/visited again,
+and `Changes` lists the flat fields that differ. A failed reload keeps the snapshot, is
+reported in `Err`, and is retried; refreshable plugins still refresh in that cycle. Watched
+files alone satisfy `StartRefresh`.
+
+Plugins passed with `WithPlugins` read `Loader.PresentFields` / `GetUnknownFields` in their
+`Parse` as without watching: each parse, including every reload, starts from empty sets and
+records the files being parsed. Any failure after a reload starts parsing (a file, a
+plugin, validation, publishing) restores the sets of the accepted files.
+`Config.UnknownFields()` reports the accepted files even while a reload parses; only
+direct `Loader` reads from another goroutine see the parse in progress.
+
+```go
+type FileWatcher interface {
+    // Calls notify when any path may have changed; returns once ctx is done.
+    Watch(ctx context.Context, paths []string, notify func()) error
+}
+```
+
+`watchers/xconfigfsnotify` (separate module) implements it: `xconfigfsnotify.New(WithDelay(d))`
+watches the files' directories (and symlink targets' directories), ignores writes to other
+files there, and notifies once per burst, `d` (100ms) after its first event.
 
 ## flat package
 
@@ -203,6 +231,9 @@ A plugin can implement multiple interfaces (Walker + Visitor, Visitor + Refresha
 - `loader.GetUnknownFields() map[string][]string` — get unknown fields
 - `loader.PresentFields() map[string]struct{}` — get explicitly set fields
 - `loader.NewReader(src io.Reader, unmarshal Unmarshal) Plugin` — load from reader
+- `loader.ReadFiles() (*FileSet, error)` — read every file once; `FileSet.Plugins()` returns
+  plugins parsing exactly those bytes into the loader's unknown/present fields (cleared first)
+  and a `restore` func for a rejected parse; `Equal` compares sets
 
 ### secret (`plugins/secret`)
 

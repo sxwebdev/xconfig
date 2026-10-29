@@ -43,6 +43,7 @@ either `Walker` (receives the whole struct) or `Visitor` (receives flattened fie
 xconfig.go          — Config interface, Custom(), config struct, Parse()
 load.go             — Load() convenience function, wires standard plugins
 options.go          — Option type and With* functional options
+watch.go            — FileWatcher, config file reload (WithWatchFiles)
 usage.go            — Usage() text output
 markdown.go         — GenerateMarkdown() table output
 doc.go              — Package-level godoc
@@ -69,6 +70,9 @@ decoders/
 sourcers/
   xconfigvault/     — HashiCorp Vault plugin with batch loading, token renewal,
                       auto-retry, metrics callback, VaultPlugin (Visitor+Refreshable)
+
+watchers/
+  xconfigfsnotify/  — fsnotify-based FileWatcher (separate module)
 ```
 
 ### Loading order
@@ -94,6 +98,17 @@ refresh results, and publish `xconfig.Snapshot[T]` through an `atomic.Pointer` w
 `result.Published` is true. Refresh never
 mutates the struct originally passed to `Load`. Change events contain field paths but never
 old or new values, preventing secrets from leaking through notifications.
+
+### Config file hot reload
+
+`WithWatchFiles()` makes refresh reload the configuration when the loader's files change;
+`WithFileWatcher(xconfigfsnotify.New())` (module `watchers/xconfigfsnotify`) also wakes the
+loop on file system events. A reload never overlays a file onto the current value: it runs
+the whole `Load` chain on a clone of the pre-parse value, so priority, defaults for removed
+keys, and container replacement behave as at startup. Refreshable plugins are refreshed in
+their place in the chain; other `WithPlugins` plugins are walked/visited again, so their
+`Walk`/`Visit` must be repeatable. `Loader.PresentFields` reports the files of the parse in
+progress and is restored when a reload is rejected. See `watch.go`.
 
 ### Struct tags
 

@@ -37,6 +37,45 @@ func loadConfig(conf any, publishSnapshot bool, opts ...Option) (*config, error)
 		o.loader.DisallowUnknownFields(true)
 	}
 
+	var watch *fileWatch
+	if o.watchFiles && !o.skipFiles && o.loader != nil {
+		var err error
+		if watch, err = newFileWatch(conf, o); err != nil {
+			return &config{target: conf, options: o}, err
+		}
+	}
+
+	var filePlugins []plugins.Plugin
+	switch {
+	case watch != nil:
+		filePlugins, _ = watch.applied.Plugins()
+	case !o.skipFiles:
+		filePlugins = o.loader.Plugins()
+	}
+
+	ps := o.chain(filePlugins)
+	c, err := newConfig(conf, ps...)
+	if err != nil {
+		return c, err
+	}
+
+	c.options = o
+	c.watch = watch
+
+	err = c.parse(publishSnapshot)
+	if watch != nil {
+		c.acceptUnknownFields()
+	}
+	if err != nil {
+		return c, err
+	}
+
+	return c, nil
+}
+
+// chain returns the plugins Load parses, lowest priority first, with files as
+// the config file plugins.
+func (o *options) chain(files []plugins.Plugin) []plugins.Plugin {
 	ps := make([]plugins.Plugin, 0)
 
 	// Register default metadata early for usage/documentation
@@ -48,9 +87,7 @@ func loadConfig(conf any, publishSnapshot bool, opts ...Option) (*config, error)
 		ps = append(ps, customdefaults.New())
 	}
 
-	if !o.skipFiles {
-		ps = append(ps, o.loader.Plugins()...)
-	}
+	ps = append(ps, files...)
 
 	// Apply defaults after loading files to fill in zero values including those in loaded maps
 	// Use NewWithRescan to rescan the structure and find fields in maps that were created during loading
@@ -70,16 +107,5 @@ func loadConfig(conf any, publishSnapshot bool, opts ...Option) (*config, error)
 		ps = append(ps, o.plugins...)
 	}
 
-	c, err := newConfig(conf, ps...)
-	if err != nil {
-		return c, err
-	}
-
-	c.options = o
-
-	if err := c.parse(publishSnapshot); err != nil {
-		return c, err
-	}
-
-	return c, nil
+	return ps
 }
