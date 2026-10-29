@@ -141,7 +141,9 @@ func assignValue(v reflect.Value, parts []string, rawVal string) error {
 					for j := 0; j < curLen; j++ {
 						elem := fieldVal.Index(j)
 						target := newSlice.Index(j)
-						setWithReflect(target, elem)
+						if err := setWithReflect(target, elem); err != nil {
+							return err
+						}
 					}
 					if err := setWithReflect(fieldVal, newSlice); err != nil {
 						return err
