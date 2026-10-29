@@ -6,3 +6,5 @@ go.work*
 # AI
 /.agents
 /.claude
+
+/.artifacts

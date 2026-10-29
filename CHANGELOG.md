@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-## v0.6.0
+## v0.6.0 — 2026-10-30
 
 ### Added
 
@@ -36,8 +36,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   on an exhausted source.
 - `Loader` guards its unknown and present fields, so they can be read while a
   reload parses.
+- The dotenv decoder no longer ignores an error while growing a slice.
 
-## v0.5.0
+### Changed
+
+- Every module is released under the core's version and tagged together with
+  it (`decoders/xconfigyaml/v0.6.0`, `sourcers/xconfigvault/v0.6.0`, …).
+  `sourcers/xconfigvault` and `watchers/xconfigfsnotify` require the core of
+  their own release instead of replacing it locally, so `go get` resolves
+  matching versions.
+
+## v0.5.1 — 2026-08-06
+
+### Changed
+
+- Updated dependencies.
+
+## v0.5.0 — 2026-08-06
 
 ### Added
 
@@ -107,7 +122,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `UnmarshalText`, which can never apply a value, now reports an error instead of
   silently zeroing the field.
 
-## v0.4.1
+## v0.4.1 — 2026-05-05
 
 ### Added
 
@@ -162,7 +177,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `MYAPP_USE_TLS` (same name for every element); now it produces
   `MYAPP_NODES_<i>_USE_TLS` so each element has a distinct env var.
 
-## v0.4.0
+## v0.4.0 — 2026-05-05
 
 ### Added
 
@@ -198,7 +213,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `MAP_PRIMARY`) instead of `["Ma", "pprimary"]` (`MA_PPRIMARY`). This fixes
   env-name generation for map entries with lowercase keys.
 
-## v0.3.4
+## v0.3.4 — 2026-04-20
 
 ### Added
 

@@ -37,6 +37,9 @@ skills repo add sxwebdev/xconfig
 go get github.com/sxwebdev/xconfig
 ```
 
+Decoders, the Vault sourcer, and the fsnotify watcher are separate modules released under
+the same version as the core. Maintainers: see the [release guide](docs/release.md).
+
 ## Quick Start
 
 ```go

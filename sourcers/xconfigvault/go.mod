@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/hashicorp/vault-client-go v0.4.3
-	github.com/sxwebdev/xconfig v0.5.1
+	github.com/sxwebdev/xconfig v0.6.0
 )
 
 require (
@@ -17,5 +17,3 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 )
-
-replace github.com/sxwebdev/xconfig => ../../
