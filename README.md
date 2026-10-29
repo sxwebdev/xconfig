@@ -15,6 +15,7 @@ A lightweight, zero-dependency, and highly extensible configuration management l
 - **Multiple Sources** - Support for defaults, environment variables, command-line flags, and config files
 - **HashiCorp Vault** - Native integration with batch loading, token renewal, auto-retry, and metrics
 - **Background Refresh** - Real-time config updates without restart via `Refreshable` plugins
+- **Config File Hot Reload** - Apply edited config files without restart, by polling or file system events
 - **Nested Structures** - Full support for nested configuration structs
 - **Rich Type Support** - All basic Go types, `time.Duration`, and custom types via `encoding.TextUnmarshaler`
 - **Validation** - Built-in validation support through plugins
@@ -390,6 +391,69 @@ publish a new snapshot when `result.Published` is true.
 Any plugin implementing `plugins.Refreshable` participates in the refresh cycle automatically.
 `StartRefresh` reports `ErrNoRefreshablePlugins` when no registered plugin supports refresh,
 so a loop that could never emit anything fails immediately instead of running silently.
+
+### Hot Reloading Config Files
+
+`WithWatchFiles` makes refresh reload the configuration when the contents of the loader's
+files change, so files are applied without restarting the service:
+
+```go
+xc, err := xconfig.Load(&cfg,
+    xconfig.WithLoader(l),
+    xconfig.WithWatchFiles(),
+)
+results, err := xc.StartRefresh(ctx, 5*time.Second) // files are checked on every tick
+```
+
+Consume `results` and publish snapshots exactly as shown above; file reloads and
+`Refreshable` plugins share the same loop and the same `RefreshResult` stream, and files
+alone are enough for `StartRefresh` to run.
+
+A reload runs the whole chain again on the value passed to `Load` as it was before
+parsing, so the usual priority holds: env, flags, and plugins still override the files,
+a key removed from a file falls back to its `default`, and maps and slices are replaced
+rather than merged with their previous content. `Refreshable` plugins such as Vault are
+refreshed as part of the reload; other plugins passed with `WithPlugins`, such as
+`validate`, are walked and visited again and must tolerate that. A plugin reading
+`Loader.PresentFields` or `Loader.GetUnknownFields` in its `Parse`, for example to reject a
+key that must not come from a file, sees the files of the parse it takes part in, at
+`Load` and on every reload; a rejected reload restores the fields of the accepted files.
+While a reload runs, `Config.UnknownFields` (and `xconfig.GetUnknownFields`) keeps reporting
+the accepted files; only reading the `Loader` directly from another goroutine shows the
+files being parsed. Each file is read once
+per check and the bytes that were compared are the bytes that are parsed, so a file
+being written cannot mix two versions.
+
+A file that fails to parse or validate keeps the last published snapshot, is reported in
+`RefreshResult.Err`, and is retried on the next check, so a half-written file is picked up
+once it is complete. Replace files atomically (write a temporary file and rename it, as
+editors and Kubernetes do): a file written in place can be read mid-write, and for formats
+where a truncated file still parses, such as YAML or dotenv, that would briefly publish an
+incomplete configuration. A broken file does not hold back other sources: in the same cycle the
+`Refreshable` plugins are still refreshed and their changes published.
+
+To apply changes as soon as they are written instead of on the next tick, pass a
+`FileWatcher`. The fsnotify-based one lives in its own module to keep the core free of
+dependencies:
+
+```bash
+go get github.com/sxwebdev/xconfig/watchers/xconfigfsnotify
+```
+
+```go
+xc, err := xconfig.Load(&cfg,
+    xconfig.WithLoader(l),
+    xconfig.WithFileWatcher(xconfigfsnotify.New()), // implies WithWatchFiles
+)
+results, err := xc.StartRefresh(ctx, time.Minute) // ticks remain a fallback for missed events
+```
+
+It watches the directories holding the files rather than the files themselves, so saves
+that rename a new file over the old one and Kubernetes ConfigMap updates, which swap a
+symlink, are both noticed. Writes to other files in those directories are ignored, and a
+burst of events produces one reload `WithDelay` (100ms by default) after its first event. Services with their own lifecycle can also call `xc.Refresh(ctx)`, for example
+on `SIGHUP`, to check the files on demand; calling `Parse` again on a watched configuration
+returns `ErrWatchedReparse`.
 
 ### Secret Management (Legacy)
 

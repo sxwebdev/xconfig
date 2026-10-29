@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/sxwebdev/xconfig/plugins"
 )
@@ -28,8 +29,10 @@ type Loader struct {
 	decoders              map[string]Unmarshal
 	files                 []File
 	disallowUnknownFields bool
-	unknownFields         map[string][]string            // filepath -> unknown fields
-	presentFields         map[string]map[string]struct{} // filepath -> present leaf field paths
+
+	mu            sync.RWMutex
+	unknownFields map[string][]string            // filepath -> unknown fields
+	presentFields map[string]map[string]struct{} // filepath -> present leaf field paths
 }
 
 func NewLoader(decoders map[string]Unmarshal) (*Loader, error) {
@@ -110,6 +113,9 @@ func (f *Loader) DisallowUnknownFields(disallow bool) {
 // GetUnknownFields returns all unknown fields found in configuration files.
 // Returns a map where keys are file paths and values are slices of unknown field paths.
 func (f *Loader) GetUnknownFields() map[string][]string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
 	if f.unknownFields == nil {
 		return make(map[string][]string)
 	}
@@ -127,6 +133,9 @@ func (f *Loader) GetUnknownFields() map[string][]string {
 
 // ClearUnknownFields clears the list of unknown fields.
 func (f *Loader) ClearUnknownFields() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.unknownFields = make(map[string][]string)
 }
 
@@ -134,15 +143,39 @@ func (f *Loader) ClearUnknownFields() {
 // in loaded configuration files.
 func (f *Loader) PresentFields() map[string]struct{} {
 	result := make(map[string]struct{})
-	if f == nil || f.presentFields == nil {
+	if f == nil {
 		return result
 	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
 	for _, perFile := range f.presentFields {
 		for p := range perFile {
 			result[p] = struct{}{}
 		}
 	}
 	return result
+}
+
+func (f *Loader) setPresentFields(path string, present map[string]struct{}) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.presentFields == nil {
+		f.presentFields = make(map[string]map[string]struct{})
+	}
+	f.presentFields[path] = present
+}
+
+func (f *Loader) setUnknownFields(path string, fields []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.unknownFields == nil {
+		f.unknownFields = make(map[string][]string)
+	}
+	f.unknownFields[path] = fields
 }
 
 // Plugins constructs a slice of Plugin from the Files list of
@@ -216,6 +249,11 @@ type walker struct {
 	disallowUnknownFields bool
 	loader                *Loader
 
+	// data holds the source once it has been read, so parsing again applies
+	// the same content instead of reading an exhausted src.
+	data []byte
+	read bool
+
 	err error
 }
 
@@ -233,30 +271,32 @@ func (v *walker) Parse() error {
 		return v.err
 	}
 
-	if v.src == nil {
-		return nil
-	}
+	if !v.read {
+		if v.src == nil {
+			return nil
+		}
 
-	src, err := io.ReadAll(v.src)
-	if err != nil {
-		return err
-	}
-
-	if closer, ok := v.src.(io.Closer); ok {
-		err := closer.Close()
+		data, err := io.ReadAll(v.src)
 		if err != nil {
 			return err
 		}
+
+		if closer, ok := v.src.(io.Closer); ok {
+			err := closer.Close()
+			if err != nil {
+				return err
+			}
+		}
+
+		v.data, v.read = data, true
 	}
+	src := v.data
 
 	// Track which leaf fields were explicitly present in the config file.
 	if v.loader != nil {
 		present, err := findPresentFields(src, v.unmarshal)
 		if err == nil {
-			if v.loader.presentFields == nil {
-				v.loader.presentFields = make(map[string]map[string]struct{})
-			}
-			v.loader.presentFields[v.filepath] = present
+			v.loader.setPresentFields(v.filepath, present)
 		}
 	}
 
@@ -269,7 +309,7 @@ func (v *walker) Parse() error {
 		} else if len(unknownFields) > 0 {
 			// Store unknown fields in loader
 			if v.loader != nil {
-				v.loader.unknownFields[v.filepath] = unknownFields
+				v.loader.setUnknownFields(v.filepath, unknownFields)
 			}
 
 			// Return error if disallowed
